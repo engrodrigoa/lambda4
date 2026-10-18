@@ -16,7 +16,7 @@ ações com root/sudo. Respostas em português (pt-BR).
 | Item | Valor |
 |---|---|
 | Host | `lambdaserver` — Ubuntu 24.04.5, kernel 6.8 |
-| HW | i7 (8 threads), 32 GB DDR3, SSD 238 GB (`/`), HDD 1 TB NTFS (`sdb`, "HardDrive", não usado) |
+| HW | i7 (8 threads), 32 GB DDR3, SSD 238 GB (`/`), HDD USB 320 GB (datalake/scratch); HDD 1 TB NTFS interno (`sdb`) fora do projeto |
 | Usuário | `lambda` (sudo sem senha). Senha: ver com o dono — **nunca gravar no repo** |
 | Acesso | SSH via Tailscale a partir de `odyssey` (Windows, pessoal) |
 | Tailscale | `100.69.229.85` / nome `lambdaserver` (estável; IP da LAN muda: atual 192.168.1.54 via DHCP) |
@@ -25,10 +25,13 @@ ações com root/sudo. Respostas em português (pt-BR).
 Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 
 ## Armazenamento (design)
-- `/mnt/datalake` (ext4) — dados do lake (SeaweedFS, warehouse Iceberg).
-- `/mnt/scratch` (ext4, ~100 GiB) — temporários/shuffle do Spark.
-- Ambos são partições de **um único HDD USB** (JMicron JMS578, `usb-JMicron_Tech_DB12345681BC-0:0`), via `/etc/fstab` por UUID com `nofail`.
-- **ESTADO ATUAL: DISCO FORA DO AR** — kernel reporta `Hardware Error ASC=0x44`, 0 bytes, SMART falha. Problema físico (energia/cabo/disco), não de software.
+- Um único HDD USB bus-powered (WD3200BPVT 320 GB, ponte JMicron JMS578, `usb-JMicron_Tech_DB12345681BC-0:0`), montado por UUID no `/etc/fstab` com `nofail`:
+  - `/mnt/datalake` (ext4, ~194 GB) — dados do lake (SeaweedFS, warehouse Iceberg, modelos, vetores).
+  - `/mnt/scratch` (ext4, ~98 GB) — temporários/shuffle do Spark.
+- Estado (2026-10-18): OK após replug. SMART PASSED, 0 setores realocados/pendentes. Load_Cycle_Count alto (~140k, estacionamento de cabeça) — vigiar.
+- Fragilidade conhecida: sem alimentação própria, o disco falha (`Hardware Error ASC=0x44`) após mover/desplugar. Se ocorrer: trocar porta/cabo (USB 3 traseira), replugar, depois `sudo mount -a`.
+- Disco é pequeno (320 GB): planejar retenção/limpeza dos dados do lake. Backup do essencial vai para o GitHub (código) — dados do lake não têm backup.
+- O HDD interno SATA de 1 TB (`sdb`, NTFS "HardDrive", volume sujo do Windows) **não é do projeto**; não montar nem reparar sem autorização.
 
 ## Stack (systemd nativo, sem Docker) — comando de saúde: `lab`
 | Grupo | Serviço | Porta |
@@ -64,8 +67,8 @@ Todos os serviços escutam em localhost; acesso remoto por **túnel SSH** (`lab 
 - Alertas de "alvo fora do ar" para serviços sob demanda são esperados; refinar regras do Alertmanager depois.
 
 ## Pendências conhecidas
-1. HDD USB do datalake/scratch não responde → verificar fonte/cabo/porta; sem ele SeaweedFS, Spark e alertas ficam fora.
-2. Loki responde 503 (provável efeito de storage ausente) e Qdrant/Ollama/Phoenix inativos.
+1. Considerar disco maior/com fonte própria para o datalake (320 GB, bus-powered).
+2. Serviços sob demanda ainda desligados; subir e validar com `lab` agora que o disco voltou.
 3. Implementar `lab start|stop`; silenciar alertas dos serviços sob demanda.
 4. VS Code desktop não instalado; acesso de edição remota é via `~/.vscode-server` (Remote-SSH a partir do odyssey).
 5. Definir o que vamos construir (primeiro pipeline/projeto) antes de CI/CD.
