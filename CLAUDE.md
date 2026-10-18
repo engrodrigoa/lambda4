@@ -58,13 +58,14 @@ Todos os serviços escutam em localhost; acesso remoto por **túnel SSH** (`lab 
 - Medalhão: bronze → silver → gold (Iceberg no SeaweedFS S3), transformações dbt, orquestração Airflow.
 - Todo pipeline: idempotente, com testes dbt/Elementary, métricas no Prometheus, logs no Loki, alerta no Alertmanager.
 
-## Ciclo de vida dos serviços
-- **Sobem no boot (enabled):** postgresql, airflow (api-server, scheduler, dag-processor, triggerer), grafana (+ prometheus/exporters de base).
-- **Sob demanda (on/off):** SeaweedFS, Spark, Qdrant, Ollama, Phoenix, MLflow, Loki/Alloy `[?]`. Gerenciar via `lab start|stop <nome>` (a implementar) e desabilitar o boot dos demais (`systemctl disable`).
+## Ciclo de vida dos serviços (aplicado em 2026-10-18)
+- **Sobem no boot (enabled):** postgresql, airflow (api-server, scheduler, dag-processor, triggerer), elementary-report, grafana, prometheus, alertmanager, node/postgres exporters, tailscaled.
+- **Sob demanda (disabled no boot):** seaweedfs, spark-master/worker/history, mlflow (depende de seaweedfs), qdrant, ollama, phoenix, loki, alloy. Ligar/desligar com `sudo systemctl start|stop <unit>` até existir `lab start|stop`.
+- Alertas de "alvo fora do ar" para serviços sob demanda são esperados; refinar regras do Alertmanager depois.
 
 ## Pendências conhecidas
 1. HDD USB do datalake/scratch não responde → verificar fonte/cabo/porta; sem ele SeaweedFS, Spark e alertas ficam fora.
 2. Loki responde 503 (provável efeito de storage ausente) e Qdrant/Ollama/Phoenix inativos.
-3. Implementar `lab start|stop` e ajustar units enabled conforme a seção acima.
+3. Implementar `lab start|stop`; silenciar alertas dos serviços sob demanda.
 4. VS Code desktop não instalado; acesso de edição remota é via `~/.vscode-server` (Remote-SSH a partir do odyssey).
 5. Definir o que vamos construir (primeiro pipeline/projeto) antes de CI/CD.
