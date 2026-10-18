@@ -31,7 +31,9 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 - Estado (2026-10-18): OK após replug. SMART PASSED, 0 setores realocados/pendentes. Load_Cycle_Count alto (~140k, estacionamento de cabeça) — vigiar.
 - Fragilidade conhecida: sem alimentação própria, o disco falha (`Hardware Error ASC=0x44`) após mover/desplugar. Se ocorrer: trocar porta/cabo (USB 3 traseira), replugar, depois `sudo mount -a`.
 - Disco é pequeno (320 GB): planejar retenção/limpeza dos dados do lake. Backup do essencial vai para o GitHub (código) — dados do lake não têm backup.
-- O HDD interno SATA de 1 TB (`sdb`, NTFS "HardDrive", volume sujo do Windows) **não é do projeto**; não montar nem reparar sem autorização.
+- HDD interno SATA de 1 TB (`sdb1`, NTFS "HardDrive", UUID `EECC70A6CC706B2B`) montado em `/mnt/hdd1tb` (ntfs3, rw, `nofail` no fstab; fstab anterior em `/etc/fstab.bak-20261018`). Marca de "sujo" limpa com `ntfsfix -d` em 2026-10-18; SMART PASSED. Contém ~210 GB de arquivos antigos do dono (`airela`, `backup`, `fotos celular jordana`, `Games`, `Google Drive`, `lambda2`).
+  - **REGRA: nunca apagar, mover ou limpar arquivos existentes nesse disco.** Só escrever em `/mnt/hdd1tb/lambda-dump/` (backups, exports, dados frios).
+  - NTFS não guarda permissões/links Linux nem serve para bancos ou SeaweedFS: usar só como despejo/backup.
 
 ## Stack (systemd nativo, sem Docker) — comando de saúde: `lab`
 | Grupo | Serviço | Porta |
