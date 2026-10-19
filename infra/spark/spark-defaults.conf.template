@@ -1,0 +1,44 @@
+# Template of /etc/spark/spark-defaults.conf (mode 600). Replace ${VARS}; never commit real values.
+spark.master                              spark://127.0.0.1:7077
+spark.driver.host                         127.0.0.1
+spark.driver.bindAddress                  127.0.0.1
+spark.driver.memory                       4g
+spark.executor.memory                     8g
+spark.local.dir                           /srv/scratch/spark-tmp
+spark.eventLog.enabled                    true
+spark.eventLog.dir                        file:///mnt/datalake/spark-events
+spark.history.fs.logDirectory             file:///mnt/datalake/spark-events
+spark.history.ui.port                     18080
+spark.sql.catalog.lambda                  org.apache.iceberg.spark.SparkCatalog
+spark.sql.catalog.lambda.catalog-impl     org.apache.iceberg.jdbc.JdbcCatalog
+spark.sql.catalog.lambda.uri              jdbc:postgresql://127.0.0.1:5432/iceberg_catalog
+spark.sql.catalog.lambda.jdbc.user        iceberg
+spark.sql.catalog.lambda.jdbc.password    ${ICEBERG_JDBC_PASSWORD}
+spark.sql.catalog.lambda.warehouse        s3://warehouse/
+spark.sql.catalog.lambda.io-impl          org.apache.iceberg.aws.s3.S3FileIO
+spark.sql.catalog.lambda.s3.endpoint      http://127.0.0.1:8333
+spark.sql.catalog.lambda.s3.path-style-access true
+spark.sql.catalog.lambda.s3.access-key-id ${S3_ACCESS_KEY}
+spark.sql.catalog.lambda.s3.secret-access-key ${S3_SECRET_KEY}
+spark.sql.catalog.lambda.client.region    us-east-1
+
+# --- delta + hive metastore (postgres) + s3a  (added 2026-10-18; Iceberg stays available as catalog "lambda")
+spark.sql.extensions                      io.delta.sql.DeltaSparkSessionExtension,org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+spark.sql.catalog.spark_catalog           org.apache.spark.sql.delta.catalog.DeltaCatalog
+spark.sql.catalogImplementation           hive
+spark.sql.warehouse.dir                   s3a://warehouse/spark-sql
+spark.hadoop.javax.jdo.option.ConnectionURL        jdbc:postgresql://127.0.0.1:5432/hive_metastore
+spark.hadoop.javax.jdo.option.ConnectionDriverName org.postgresql.Driver
+spark.hadoop.javax.jdo.option.ConnectionUserName   hive
+spark.hadoop.javax.jdo.option.ConnectionPassword   ${HIVE_METASTORE_PASSWORD}
+spark.hadoop.datanucleus.schema.autoCreateAll      false
+spark.hadoop.hive.metastore.schema.verification    true
+spark.hadoop.fs.s3a.endpoint                       http://127.0.0.1:8333
+spark.hadoop.fs.s3a.endpoint.region                us-east-1
+spark.hadoop.fs.s3a.path.style.access              true
+spark.hadoop.fs.s3a.connection.ssl.enabled         false
+spark.hadoop.fs.s3a.access.key                     ${S3_ACCESS_KEY}
+spark.hadoop.fs.s3a.secret.key                     ${S3_SECRET_KEY}
+spark.hadoop.fs.s3a.aws.credentials.provider       org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+spark.hadoop.fs.s3a.fast.upload                    true
+spark.hadoop.fs.s3a.buffer.dir                     /srv/scratch/spark-tmp/s3a

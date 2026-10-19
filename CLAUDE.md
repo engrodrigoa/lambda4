@@ -46,12 +46,27 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 - Landing: local ZIPs, configurable via `LANDING_URI` (file:// or s3://), default `/mnt/hdd1tb/lambda-dump/landing/rfb/ref=YYYYMM/`. Reuse the datalabs download (37-file contract, retries, ZIP size validation; see datalabs ADR 0009).
 - Pilot month: **2026-09**. First prove the whole pipeline with 1 month; code must already be structured for many months (`ref_month` param everywhere, ordered backfill).
 - Bronze retention: **3 months**. Silver SCD2 keeps full history (stores only changes).
-- Table format: **open decision** Delta vs Iceberg (see discussion; user leans Delta for Databricks Data Engineer Associate goal). Catalog infra for Iceberg already exists (`lambda` JDBC catalog in Postgres, `s3://warehouse/`).
-- Keys: evaluate md5/xxhash row hashes and surrogate keys in the silver step.
+- Table format: **Delta Lake 4.1.0** (decided 2026-10-18, ADR 0001; goal: Databricks Data Engineer Associate). Named tables in an embedded Hive metastore on Postgres (`hive_metastore`). Iceberg stays available as catalog `lambda`.
+- Keys: **natural keys** (estabelecimento `cnpj_basico+ordem+dv`; empresa/simples `cnpj_basico`; socios composite, validated on pilot data). No md5. SCD2 change detection uses Spark `xxhash64` over tracked columns, compared only between versions of the same key.
 - Serving: DuckDB over gold for DBeaver.
 
 ## Model policy (set by the owner)
 - Use **Opus 5.5** to write/generate code (precision); **Sonnet 5.5** for general discussion and planning (token economy). Prioritize Opus 5.5 when in doubt about code correctness.
+
+## Control vs audit vs logs (owner's rule)
+- **`ctrl`** = Delta tables in bucket `s3a://ctrl/`. ONLY reference/resume control for downloads: which `ref_month` was downloaded, when, status, and where to resume (e.g. 202608 downloaded -> proceed to 202609). History is kept.
+- **`audit`** = Postgres schema `audit` in database `lambda` (read by Grafana via `grafana_ro`). Pipeline logs and audit: runs, tasks, dq events, full and parsed log lines, in the structure best for Grafana tables/panels. Do not mix with ctrl.
+- Structured JSON logs (one event per line) go to Loki via Alloy; metrics via Pushgateway/Prometheus; alerts via Alertmanager.
+- Failure policy: **BLOCK** only for model-breaking failures (contract file missing/unreadable, bronze 0 rows, month out of order for SCD2, natural-key duplicates in silver); everything else is **WARN** (continue, log to audit, metric, alert). Bad CSV rows go to quarantine, never silently dropped. Severity lives in one place in `pipelines/commons`.
+- Every script exposes as much pipeline-health information as possible, task by task and for the whole orchestration (observability and reliability are the premise of every lab).
+
+## Running PySpark here
+- Python: `~/.envs/env-data/bin/python` (pyspark 4.1.3, delta-spark 4.1.0, duckdb). Run with
+  `SPARK_HOME=/opt/spark SPARK_CONF_DIR=/etc/spark PYSPARK_PYTHON=$HOME/.envs/env-data/bin/python`.
+- Config (cluster, Delta, Hive metastore, s3a, secrets): `/etc/spark/spark-defaults.conf` (mode 600). Template: `infra/spark/spark-defaults.conf.template`.
+- Extra jars: `infra/spark/install_jars.sh`. Metastore schema: `infra/hive/README.md`. Smoke test: `infra/smoke/smoke_delta.py`.
+- Buckets (SeaweedFS S3): `bronze`, `silver`, `gold`, `ctrl`, `warehouse` (Iceberg), `mlflow`. Secrets: `~/.config/lambda/secrets/` (never in git).
+- Learning report for the owner: `docs/learning/`.
 
 ## Stack (systemd nativo, sem Docker) — comando de saúde: `lab`
 | Grupo | Serviço | Porta |
@@ -92,4 +107,4 @@ Todos os serviços escutam em localhost; acesso remoto por **túnel SSH** (`lab 
 3. Implementar `lab start|stop`; silenciar alertas dos serviços sob demanda.
 4. VS Code desktop não instalado; acesso de edição remota é via `~/.vscode-server` (Remote-SSH a partir do odyssey).
 5. Projeto 1 definido (RFB via PySpark). CI/CD só depois do primeiro pipeline funcionar.
-6. Decidir Delta vs Iceberg e então gravar ADR 0001.
+6. Próximo: desenhar tabelas ctrl (Delta) e audit (Postgres), escrever `pipelines/commons` e `rfb01` (usar Opus 5.5 para código).
