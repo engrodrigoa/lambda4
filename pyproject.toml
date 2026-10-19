@@ -1,0 +1,19 @@
+[project]
+name = "lambda4"
+version = "0.1.0"
+description = "Lambda lab: data pipelines on PySpark + Delta with observability first"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+markers = ["integration: needs local services (Postgres, Spark, S3)"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "BLE"]
+ignore = ["B904"]

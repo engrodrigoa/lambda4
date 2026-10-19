@@ -1,6 +1,12 @@
 # Design 0001 — `ctrl` (Delta) and `audit` (Postgres) models
 
-**Status:** PROPOSAL for review (2026-10-18). Nothing below is created yet except the empty bucket `ctrl` and the empty schema `audit`.
+**Status:** ACCEPTED and implemented (2026-10-18). Decisions on the open questions: Q1 layer watermark in `ctrl`;
+Q2 raw quarantined rows in a Delta table in bucket `audit`; Q3 90 days of mirrored logs; Q4 Pushgateway installed.
+
+**Implementation deviation (reviewed with the owner after the fact):** the `ctrl` tables are **generic**, with a
+`pipeline` column, instead of one set per project: `ctrl.download_ref`, `ctrl.download_file`, `ctrl.layer_watermark`
+(the `rfb_*` names below read as `pipeline = 'rfb'`). Reason: DRY across future projects (ANP, NF-e...).
+Code: `pipelines/commons/ctrl.py`, `pipelines/commons/audit.py`, DDL `infra/postgres/audit_schema.sql`.
 
 Owner's rule: **`ctrl` = reference/resume control for downloads only. `audit` = pipeline logs and audit. Never mixed.**
 

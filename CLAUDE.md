@@ -68,6 +68,13 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 - Buckets (SeaweedFS S3): `bronze`, `silver`, `gold`, `ctrl`, `warehouse` (Iceberg), `mlflow`. Secrets: `~/.config/lambda/secrets/` (never in git).
 - Learning report for the owner: `docs/learning/`.
 
+## Pipeline code (state 2026-10-18)
+- `pipelines/commons/`: `settings` (env + `~/.config/lambda/lambda.env`), `refmonth`, `context` (Airflow AIRFLOW_CTX_* or manual run_id; `LAMBDA_RUN_ID` shares a run), `logger` (stdout + `/var/log/lambda/<pipeline>/*.jsonl` -> Alloy -> Loki + mirror to `audit.log_event`), `audit` (best-effort, spools to `/srv/scratch/audit-spool` if Postgres is down), `metrics` (Pushgateway, pushadd per pipeline/task), `dq` (the ONE severity registry), `task` (`TaskRun`/`run_task`: exit 0 ok, 99 skipped, 1 failed), `http` (retrying fetcher, sha256 while streaming), `landing` (`LANDING_URI`, file:// only), `spark` (session factory), `ctrl` (Delta control tables + `InMemoryCtrl`).
+- `pipelines/rfb/`: `contract` (37 files + column layout per entity), `source` (share, probe, named failure causes), `rfb01_download` (`python -m pipelines.rfb.rfb01_download --ref-month 2026-09|next`).
+- Tests: `~/.envs/env-data/bin/python -m pytest` (no services touched); lint: `~/.envs/env-data/bin/ruff check pipelines tests`.
+- Known issue: the Delta 4.1.0 SQL extension breaks `spark.sql(..., args=...)` parameter binding on Spark 4.1 (UNBOUND_SQL_PARAMETER). Use the DataFrame API for filtered reads.
+- Pushgateway: `127.0.0.1:9091` (persistence `/var/lib/prometheus/pushgateway.data`), Prometheus job `pushgateway` with `honor_labels`.
+
 ## Stack (systemd nativo, sem Docker) — comando de saúde: `lab`
 | Grupo | Serviço | Porta |
 |---|---|---|
@@ -76,7 +83,7 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 | orquestração | Airflow 3 (api-server, scheduler, dag-processor, triggerer) | 8080 |
 | orquestração | dbt + Elementary (report) | 8090 |
 | spark | master / worker / history (Spark 4.1.3 em `/opt/spark`) | 8088 / 8089 / 18080 |
-| observabilidade | Prometheus, Alertmanager, Grafana, Loki, Alloy, node/postgres exporters | 9090 / 9093 / 3000 / 3100 / 12345 / 9100 / 9187 |
+| observabilidade | Prometheus, Alertmanager, Grafana, Loki, Alloy, Pushgateway, node/postgres exporters | 9090 / 9093 / 3000 / 3100 / 12345 / 9091 / 9100 / 9187 |
 | ia | MLflow, Phoenix, Qdrant, Ollama | 5000 / 6006 / 6333 / 11434 |
 
 Todos os serviços escutam em localhost; acesso remoto por **túnel SSH** (`lab urls`).
@@ -97,7 +104,7 @@ Todos os serviços escutam em localhost; acesso remoto por **túnel SSH** (`lab 
 - Todo pipeline: idempotente, com testes dbt/Elementary, métricas no Prometheus, logs no Loki, alerta no Alertmanager.
 
 ## Ciclo de vida dos serviços (aplicado em 2026-10-18)
-- **Sobem no boot (enabled):** postgresql, airflow (api-server, scheduler, dag-processor, triggerer), elementary-report, grafana, prometheus, alertmanager, node/postgres exporters, tailscaled.
+- **Sobem no boot (enabled):** postgresql, airflow (api-server, scheduler, dag-processor, triggerer), elementary-report, grafana, prometheus, alertmanager, pushgateway, node/postgres exporters, tailscaled.
 - **Sob demanda (disabled no boot):** seaweedfs, spark-master/worker/history, mlflow (depende de seaweedfs), qdrant, ollama, phoenix, loki, alloy. Ligar/desligar com `sudo systemctl start|stop <unit>` até existir `lab start|stop`.
 - Alertas de "alvo fora do ar" para serviços sob demanda são esperados; refinar regras do Alertmanager depois.
 
@@ -107,4 +114,4 @@ Todos os serviços escutam em localhost; acesso remoto por **túnel SSH** (`lab 
 3. Implementar `lab start|stop`; silenciar alertas dos serviços sob demanda.
 4. VS Code desktop não instalado; acesso de edição remota é via `~/.vscode-server` (Remote-SSH a partir do odyssey).
 5. Projeto 1 definido (RFB via PySpark). CI/CD só depois do primeiro pipeline funcionar.
-6. Próximo: desenhar tabelas ctrl (Delta) e audit (Postgres), escrever `pipelines/commons` e `rfb01` (usar Opus 5.5 para código).
+6. Feito: ctrl/audit, `pipelines/commons`, `rfb01_download`. Próximo: `rfb02` (extract + bronze, parser PERMISSIVE + quarentena), DAG do Airflow, dashboards Grafana.
