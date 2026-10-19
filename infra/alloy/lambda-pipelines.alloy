@@ -1,0 +1,25 @@
+// --- lambda pipelines: structured JSON logs written by pipelines/commons/logger.py (added 2026-10-18)
+local.file_match "lambda_pipelines" {
+  path_targets = [{"__path__" = "/var/log/lambda/**/*.jsonl", job = "lambda-pipelines", host = constants.hostname}]
+  sync_period  = "15s"
+}
+
+loki.source.file "lambda_pipelines" {
+  targets    = local.file_match.lambda_pipelines.targets
+  forward_to = [loki.process.lambda_pipelines.receiver]
+}
+
+loki.process "lambda_pipelines" {
+  stage.json {
+    expressions = { level = "level", pipeline = "pipeline", task = "task_id", ts = "ts" }
+  }
+  // low-cardinality labels only; run_id/ref_month stay in the JSON body (query with | json)
+  stage.labels {
+    values = { level = "", pipeline = "", task = "" }
+  }
+  stage.timestamp {
+    source = "ts"
+    format = "RFC3339Nano"
+  }
+  forward_to = [loki.write.local.receiver]
+}
