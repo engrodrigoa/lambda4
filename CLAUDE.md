@@ -35,6 +35,24 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
   - **REGRA: nunca apagar, mover ou limpar arquivos existentes nesse disco.** Só escrever em `/mnt/hdd1tb/lambda-dump/` (backups, exports, dados frios).
   - NTFS não guarda permissões/links Linux nem serve para bancos ou SeaweedFS: usar só como despejo/backup.
 
+## Scratch (SSD) — changed 2026-10-18
+- Hot scratch lives on the SSD: `/srv/scratch/{spark-tmp,spark-work,rfb-extract}` (owner `lambda:datalake`, setgid). Spark `spark.local.dir` and the worker `--work-dir` point there (worker override: `/etc/systemd/system/spark-worker.service.d/scratch-ssd.conf`; previous conf in `/etc/spark/spark-defaults.conf.bak-20261018`).
+- `/mnt/scratch` (HDD USB partition) is now only cold/overflow temp space.
+- Rule: temp CSVs from extract go to `/srv/scratch/rfb-extract` and are deleted after the bronze commit.
+
+## Project 1 — RFB full via PySpark (decisions 2026-10-18)
+- Goal: whole RFB CNPJ base, PySpark, medallion to gold, SCD2 history of CNPJ attribute changes, orchestrated by Airflow, learning-oriented but production-like.
+- Layout: `pipelines/commons/*.py` (config, logger, spark session, checks, manifest — DRY across projects), `pipelines/rfb/*.py`, `airflow/dags/`, `infra/`, `docs/adr/`.
+- Landing: local ZIPs, configurable via `LANDING_URI` (file:// or s3://), default `/mnt/hdd1tb/lambda-dump/landing/rfb/ref=YYYYMM/`. Reuse the datalabs download (37-file contract, retries, ZIP size validation; see datalabs ADR 0009).
+- Pilot month: **2026-09**. First prove the whole pipeline with 1 month; code must already be structured for many months (`ref_month` param everywhere, ordered backfill).
+- Bronze retention: **3 months**. Silver SCD2 keeps full history (stores only changes).
+- Table format: **open decision** Delta vs Iceberg (see discussion; user leans Delta for Databricks Data Engineer Associate goal). Catalog infra for Iceberg already exists (`lambda` JDBC catalog in Postgres, `s3://warehouse/`).
+- Keys: evaluate md5/xxhash row hashes and surrogate keys in the silver step.
+- Serving: DuckDB over gold for DBeaver.
+
+## Model policy (set by the owner)
+- Use **Opus 5.5** to write/generate code (precision); **Sonnet 5.5** for general discussion and planning (token economy). Prioritize Opus 5.5 when in doubt about code correctness.
+
 ## Stack (systemd nativo, sem Docker) — comando de saúde: `lab`
 | Grupo | Serviço | Porta |
 |---|---|---|
@@ -73,4 +91,5 @@ Todos os serviços escutam em localhost; acesso remoto por **túnel SSH** (`lab 
 2. Serviços sob demanda ainda desligados; subir e validar com `lab` agora que o disco voltou.
 3. Implementar `lab start|stop`; silenciar alertas dos serviços sob demanda.
 4. VS Code desktop não instalado; acesso de edição remota é via `~/.vscode-server` (Remote-SSH a partir do odyssey).
-5. Definir o que vamos construir (primeiro pipeline/projeto) antes de CI/CD.
+5. Projeto 1 definido (RFB via PySpark). CI/CD só depois do primeiro pipeline funcionar.
+6. Decidir Delta vs Iceberg e então gravar ADR 0001.
