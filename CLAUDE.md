@@ -78,6 +78,12 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 - Known noise: `ERROR HiveAlterHandler: Failed to alter table` after Delta writes is harmless (Spark falls back to its own metastore format; Delta tables are not Hive-compatible).
 - Pushgateway: `127.0.0.1:9091` (persistence `/var/lib/prometheus/pushgateway.data`), Prometheus job `pushgateway` with `honor_labels`.
 
+## Owner access (from odyssey, via Tailscale + SSH)
+- Postgres for DBeaver: role `dbeaver_ro` (read-only: `audit`, `analytics`, `analytics_elementary` in db `lambda`); the owner sets its password with `sudo -u postgres psql -c "\password dbeaver_ro"`. Never paste passwords in chat or git. `lambda` is superuser (peer auth on the server).
+- DBeaver: use its SSH tab (host `lambdaserver`, user `lambda`) -> Postgres `127.0.0.1:5432`, db `lambda`.
+- One tunnel for the UIs: `ssh -N -L 8080:127.0.0.1:8080 -L 3000:127.0.0.1:3000 -L 8088:127.0.0.1:8088 -L 4040:127.0.0.1:4040 -L 18080:127.0.0.1:18080 -L 5433:127.0.0.1:5432 lambda@lambdaserver`.
+- Bronze lives in SeaweedFS S3 `s3://bronze/rfb/<entity>/` (Delta: `_delta_log/` + `_ref_month=YYYYMM/*.zstd.parquet`), physically under `/mnt/datalake/seaweedfs`.
+
 ## Stack (systemd nativo, sem Docker) — comando de saúde: `lab`
 | Grupo | Serviço | Porta |
 |---|---|---|
