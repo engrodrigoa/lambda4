@@ -1,0 +1,76 @@
+
+// --- Airflow task logs, raw (added 2026-10-21; lambda4 infra/alloy/airflow-otel.alloy)
+// /var/log/lambda/airflow/dag_id=<d>/run_id=<r>/task_id=<t>/attempt=<n>.log  (one JSON event per line)
+local.file_match "airflow_tasks" {
+  path_targets = [{"__path__" = "/var/log/lambda/airflow/dag_id=*/run_id=*/task_id=*/**.log", job = "airflow-tasks", host = constants.hostname}]
+  sync_period  = "10s"
+}
+
+// labels from the path: dag_id, task_id, attempt (low cardinality). run_id stays out of the labels: one DAG run at a
+// time (max_active_runs=1), so the time range identifies the run.
+discovery.relabel "airflow_tasks" {
+  targets = local.file_match.airflow_tasks.targets
+  rule {
+    source_labels = ["__path__"]
+    regex         = ".*/dag_id=([^/]+)/run_id=[^/]+/task_id=([^/]+)/.*attempt=([0-9]+)\\.log"
+    target_label  = "dag_id"
+    replacement   = "$1"
+  }
+  rule {
+    source_labels = ["__path__"]
+    regex         = ".*/dag_id=[^/]+/run_id=[^/]+/task_id=([^/]+)/.*"
+    target_label  = "task_id"
+    replacement   = "$1"
+  }
+  rule {
+    source_labels = ["__path__"]
+    regex         = ".*attempt=([0-9]+)\\.log"
+    target_label  = "attempt"
+    replacement   = "$1"
+  }
+}
+
+loki.source.file "airflow_tasks" {
+  targets    = discovery.relabel.airflow_tasks.output
+  forward_to = [loki.process.airflow_tasks.receiver]
+}
+
+loki.process "airflow_tasks" {
+  stage.json {
+    expressions = { level = "level", ts = "timestamp" }
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+  stage.timestamp {
+    source = "ts"
+    format = "RFC3339Nano"
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+// --- OpenTelemetry metrics from Airflow -> Prometheus (remote write)
+otelcol.receiver.otlp "airflow" {
+  http {
+    endpoint = "127.0.0.1:4318"
+  }
+  output {
+    metrics = [otelcol.processor.batch.airflow.input]
+  }
+}
+
+otelcol.processor.batch "airflow" {
+  output {
+    metrics = [otelcol.exporter.prometheus.airflow.input]
+  }
+}
+
+otelcol.exporter.prometheus "airflow" {
+  forward_to = [prometheus.remote_write.local.receiver]
+}
+
+prometheus.remote_write "local" {
+  endpoint {
+    url = "http://127.0.0.1:9090/api/v1/write"
+  }
+}

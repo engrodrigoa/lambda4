@@ -1,0 +1,2493 @@
+{
+  "uid": "lambda4-rfb-health",
+  "title": "RFB · Pipeline health & tracing",
+  "description": "Health, tracing, volume and data quality of the RFB lakehouse pipeline (source: audit schema, Pushgateway metrics, node/Spark exporters).",
+  "tags": [
+    "lambda4",
+    "rfb",
+    "pipeline"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "run_id",
+        "label": "Run",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "pg-lambda"
+        },
+        "refresh": 2,
+        "sort": 0,
+        "query": "SELECT run_id FROM audit.pipeline_run WHERE pipeline = 'rfb' ORDER BY started_at DESC LIMIT 100",
+        "definition": "SELECT run_id FROM audit.pipeline_run WHERE pipeline = 'rfb' ORDER BY started_at DESC LIMIT 100",
+        "includeAll": false,
+        "multi": false,
+        "current": {}
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Pipeline runs",
+        "enable": true,
+        "iconColor": "#8AB8FF",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "pg-lambda"
+        },
+        "target": {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT started_at AS time, coalesce(finished_at, now()) AS timeend, 'rfb ' || coalesce(ref_month::text, '') || ' ' || status AS text, status AS tags FROM audit.pipeline_run WHERE pipeline = 'rfb' AND $__timeFilter(started_at)",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      }
+    ]
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "lambda4"
+      ],
+      "asDropdown": true,
+      "title": "lambda4 dashboards",
+      "includeVars": false,
+      "keepTime": true
+    }
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Run overview — $run_id",
+      "id": 1,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Status",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT status FROM audit.pipeline_run WHERE run_id = '$run_id'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "SUCCESS": {
+                  "color": "green",
+                  "index": 0
+                },
+                "FAILED": {
+                  "color": "red",
+                  "index": 1
+                },
+                "RUNNING": {
+                  "color": "blue",
+                  "index": 2
+                },
+                "SKIPPED": {
+                  "color": "text",
+                  "index": 3
+                },
+                "PASS": {
+                  "color": "green",
+                  "index": 4
+                },
+                "FAIL": {
+                  "color": "red",
+                  "index": 5
+                },
+                "OK": {
+                  "color": "green",
+                  "index": 6
+                },
+                "WARN": {
+                  "color": "orange",
+                  "index": 7
+                },
+                "BLOCK": {
+                  "color": "red",
+                  "index": 8
+                },
+                "success": {
+                  "color": "green",
+                  "index": 9
+                },
+                "failed": {
+                  "color": "red",
+                  "index": 10
+                },
+                "running": {
+                  "color": "blue",
+                  "index": 11
+                },
+                "queued": {
+                  "color": "purple",
+                  "index": 12
+                },
+                "skipped": {
+                  "color": "text",
+                  "index": 13
+                },
+                "upstream_failed": {
+                  "color": "orange",
+                  "index": 14
+                },
+                "up_for_retry": {
+                  "color": "yellow",
+                  "index": 15
+                },
+                "scheduled": {
+                  "color": "purple",
+                  "index": 16
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 2,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Reference month",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT ref_month::text FROM audit.pipeline_run WHERE run_id = '$run_id'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 3,
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 4,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Duration",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT extract(epoch FROM coalesce(finished_at, now()) - started_at) FROM audit.pipeline_run WHERE run_id = '$run_id'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 4,
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 7,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Tasks failed",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FROM (SELECT DISTINCT ON (task_id) status FROM audit.task_run WHERE run_id = '$run_id' ORDER BY task_id, attempt DESC) t WHERE status = 'FAILED'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 5,
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 10,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Rows written (bronze+silver+gold)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT coalesce(sum(rows_out), 0) FROM audit.task_run WHERE run_id = '$run_id' AND layer IN ('bronze','silver','gold')",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 6,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 13,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "DQ BLOCK / WARN fails",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FILTER (WHERE severity = 'BLOCK') AS block, count(*) FILTER (WHERE severity = 'WARN') AS warn FROM audit.dq_event WHERE run_id = '$run_id' AND status = 'FAIL'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 7,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 17,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Rows quarantined",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT coalesce(sum(rows_rejected), 0) FROM audit.task_run WHERE run_id = '$run_id'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 8,
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 21,
+        "y": 1
+      }
+    },
+    {
+      "type": "row",
+      "title": "Execution trace (run → tasks → timed steps)",
+      "id": 9,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "panels": []
+    },
+    {
+      "type": "traces",
+      "title": "Trace of the run",
+      "description": "Root span = DAG run; children = task attempts; grandchildren = timed steps logged by the scripts (fields.seconds). Built from audit.v_trace_spans.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT \"traceID\", \"spanID\", \"parentSpanID\", \"operationName\", \"serviceName\", \"startTime\", duration FROM audit.v_trace_spans WHERE run_id = '$run_id' ORDER BY \"startTime\"",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "id": 10,
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Task duration in this run",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT task_id || CASE WHEN attempt > 1 THEN ' #' || attempt ELSE '' END AS task, round(coalesce(duration_s, extract(epoch FROM now() - started_at))) AS seconds FROM audit.task_run WHERE run_id = '$run_id' ORDER BY started_at",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "barWidth": 0.7,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelRotation": 0,
+        "groupWidth": 0.7,
+        "stacking": "none",
+        "xField": "task"
+      },
+      "id": 11,
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      }
+    },
+    {
+      "type": "table",
+      "title": "Tasks of the run",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT task_id, layer, entity, attempt, status, started_at, round(duration_s) AS duration_s, rows_in, rows_out, rows_rejected, bytes_out, warn_count, block_count, airflow_task_id, spark_app_id, error_class, left(error_message, 200) AS error FROM audit.task_run WHERE run_id = '$run_id' ORDER BY started_at",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duration_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes_out"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "started_at"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 12,
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      }
+    },
+    {
+      "type": "row",
+      "title": "Performance across runs",
+      "id": 13,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Duration per task",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT started_at AS time, task_id AS metric, duration_s AS value FROM audit.task_run WHERE pipeline = 'rfb' AND duration_s IS NOT NULL AND $__timeFilter(started_at) ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "points",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 14,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 29
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Rows written per task",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT started_at AS time, task_id AS metric, rows_out AS value FROM audit.task_run WHERE pipeline = 'rfb' AND rows_out IS NOT NULL AND $__timeFilter(started_at) ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "points",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 15,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 29
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Throughput (rows/s) per task",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT started_at AS time, task_id AS metric, rows_out / nullif(duration_s, 0) AS value FROM audit.task_run WHERE pipeline = 'rfb' AND rows_out > 0 AND $__timeFilter(started_at) ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "rowsps",
+          "custom": {
+            "drawStyle": "points",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 16,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 37
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Last-run duration (Pushgateway gauge)",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "lambda_task_duration_seconds{job=\"lambda_pipeline\", pipeline=\"rfb\"}",
+          "legendFormat": "{{task}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 17,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 37
+      }
+    },
+    {
+      "type": "row",
+      "title": "Delta tables — volume and file health",
+      "id": 18,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 45
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Latest state of every Delta table",
+      "description": "Small files (avg < 32 MiB with many files) ask for OPTIMIZE; rows_written = last operation.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT DISTINCT ON (table_name) table_name, layer, delta_version, operation, rows_total, size_bytes, num_files, round(size_bytes / nullif(num_files, 0) / 1048576.0, 1) AS avg_file_mib, rows_written, captured_at FROM audit.delta_table_stats WHERE pipeline = 'rfb' ORDER BY table_name, captured_at DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_file_mib"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "orange",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 32
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "size_bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_file_mib"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decmbytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "captured_at"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 19,
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 46
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Rows per table (latest)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT table_name, rows_total FROM (SELECT DISTINCT ON (table_name) table_name, layer, delta_version, operation, rows_total, size_bytes, num_files, round(size_bytes / nullif(num_files, 0) / 1048576.0, 1) AS avg_file_mib, rows_written, captured_at FROM audit.delta_table_stats WHERE pipeline = 'rfb' ORDER BY table_name, captured_at DESC) t ORDER BY rows_total DESC NULLS LAST",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "barWidth": 0.7,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelRotation": 0,
+        "groupWidth": 0.7,
+        "stacking": "none",
+        "xField": "table_name"
+      },
+      "id": 20,
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 55
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Size per table (latest)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT table_name, size_bytes FROM (SELECT DISTINCT ON (table_name) table_name, layer, delta_version, operation, rows_total, size_bytes, num_files, round(size_bytes / nullif(num_files, 0) / 1048576.0, 1) AS avg_file_mib, rows_written, captured_at FROM audit.delta_table_stats WHERE pipeline = 'rfb' ORDER BY table_name, captured_at DESC) t ORDER BY size_bytes DESC NULLS LAST",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "barWidth": 0.7,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelRotation": 0,
+        "groupWidth": 0.7,
+        "stacking": "none",
+        "xField": "table_name"
+      },
+      "id": 21,
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 55
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Table growth (rows)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT captured_at AS time, table_name AS metric, rows_total AS value FROM audit.delta_table_stats WHERE pipeline = 'rfb' AND rows_total IS NOT NULL AND $__timeFilter(captured_at) ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "points",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 22,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 65
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Rows written per operation",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT captured_at AS time, table_name || ' ' || operation AS metric, rows_written AS value FROM audit.delta_table_stats WHERE pipeline = 'rfb' AND rows_written IS NOT NULL AND $__timeFilter(captured_at) ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 23,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 65
+      }
+    },
+    {
+      "type": "row",
+      "title": "Data quality and reconciliation",
+      "id": 24,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 73
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Checks of the run",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT created_at, task_id, check_name, severity, status, observed, threshold, message FROM audit.dq_event WHERE run_id = '$run_id' ORDER BY (status = 'FAIL') DESC, created_at",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "severity"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "created_at"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 25,
+      "gridPos": {
+        "h": 10,
+        "w": 14,
+        "x": 0,
+        "y": 74
+      }
+    },
+    {
+      "type": "table",
+      "title": "Reconciliation by entity (rows across layers)",
+      "description": "extracted == bronze_out + quarantined is a BLOCK check (bronze.rows_match_source).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT entity, max(rows_out) FILTER (WHERE layer = 'extract') AS extracted, max(rows_in) FILTER (WHERE layer = 'bronze') AS bronze_in, max(rows_out) FILTER (WHERE layer = 'bronze') AS bronze_out, max(rows_in) FILTER (WHERE layer = 'silver') AS silver_in, sum(rows_rejected) AS quarantined FROM audit.task_run WHERE run_id = '$run_id' AND entity IS NOT NULL GROUP BY entity ORDER BY entity",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 26,
+      "gridPos": {
+        "h": 10,
+        "w": 10,
+        "x": 14,
+        "y": 74
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Failed checks over time",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT $__timeGroupAlias(created_at, '1h'), check_name AS metric, count(*) AS value FROM audit.dq_event WHERE pipeline = 'rfb' AND status = 'FAIL' AND $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 27,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 84
+      }
+    },
+    {
+      "type": "table",
+      "title": "Quarantine (latest per entity and reason)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT DISTINCT ON (entity, reason) created_at, entity, file_name, reason, rows, left(sample, 300) AS sample FROM audit.quarantine_summary WHERE pipeline = 'rfb' ORDER BY entity, reason, created_at DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "created_at"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 28,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 84
+      }
+    },
+    {
+      "type": "row",
+      "title": "Platform health at run time",
+      "id": 29,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 92
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Preflight health checks of the run",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT component, status, latency_ms, detail::text AS detail FROM audit.health_check WHERE run_id = '$run_id' ORDER BY component",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "latency_ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 30,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 93
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Probe latency per component",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT checked_at AS time, component AS metric, latency_ms AS value FROM audit.health_check WHERE pipeline = 'rfb' AND $__timeFilter(checked_at) ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "drawStyle": "points",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 31,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 93
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU busy %",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[2m])))",
+          "legendFormat": "cpu",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 32,
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 0,
+        "y": 101
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory used",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes",
+          "legendFormat": "used",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 33,
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 6,
+        "y": 101
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Disk throughput (SSD sda, lake USB sdc, landing sdb)",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "rate(node_disk_read_bytes_total{device=~\"sd[a-c]\"}[2m])",
+          "legendFormat": "read {{device}}",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "rate(node_disk_written_bytes_total{device=~\"sd[a-c]\"}[2m])",
+          "legendFormat": "write {{device}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 34,
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 101
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Spark worker cores / memory in use",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "metrics_worker_coresUsed_Value",
+          "legendFormat": "cores used",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "metrics_worker_memUsed_MB_Value",
+          "legendFormat": "memory MB",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 35,
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 101
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Free space on the data disks",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "node_filesystem_avail_bytes{mountpoint=~\"/|/mnt/datalake|/mnt/hdd1tb|/mnt/scratch\"}",
+          "legendFormat": "{{mountpoint}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 36,
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 108
+      }
+    }
+  ]
+}

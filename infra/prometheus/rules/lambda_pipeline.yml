@@ -1,0 +1,65 @@
+# Alerts for the lambda pipelines (metrics pushed by pipelines/commons/metrics.py and finalize_run.py).
+# Batch metrics are state: an alert stays firing until the next successful run replaces the value.
+groups:
+  - name: lambda-pipeline
+    rules:
+      - alert: LambdaTaskFailed
+        expr: lambda_task_success{job="lambda_pipeline"} == 0
+        labels: {severity: critical}
+        annotations:
+          summary: "Task {{ $labels.pipeline }}/{{ $labels.task }} failed"
+          description: "Last run of {{ $labels.task }} ({{ $labels.layer }}) failed. See Grafana 'RFB pipeline health' and audit.task_run."
+      - alert: LambdaPipelineRunFailed
+        expr: lambda_pipeline_success{job="lambda_pipeline"} == 0
+        labels: {severity: critical}
+        annotations:
+          summary: "Pipeline {{ $labels.pipeline }}: last run failed"
+          description: "{{ $value }} = success flag of the last run. Failed tasks are listed in the pipeline_end event."
+      - alert: LambdaDataQualityBlock
+        expr: lambda_task_dq_failures{job="lambda_pipeline", severity="BLOCK"} > 0
+        labels: {severity: critical}
+        annotations:
+          summary: "BLOCK data-quality check failed in {{ $labels.task }}"
+          description: "A model-breaking check stopped {{ $labels.task }}. audit.dq_event has the check name and values."
+      - alert: LambdaDataQualityWarn
+        expr: lambda_task_dq_failures{job="lambda_pipeline", severity="WARN"} > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} WARN data-quality checks failed in {{ $labels.task }}"
+          description: "The task continued. Review audit.dq_event / Grafana 'Data quality' panel."
+      - alert: LambdaQuarantineRateHigh
+        expr: |
+          lambda_task_rows{job="lambda_pipeline", kind="rejected"}
+            / ignoring(kind) lambda_task_rows{job="lambda_pipeline", kind="in"} > 0.001
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.task }} quarantined {{ $value | humanizePercentage }} of its input"
+          description: "Rows refused by the pipeline are in the Delta table audit.quarantine."
+      - alert: LambdaTaskSlow
+        expr: lambda_task_duration_seconds{job="lambda_pipeline", layer=~"bronze|silver|gold"} > 7200
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.task }} took {{ $value | humanizeDuration }}"
+          description: "Above the 2 h budget for a single Spark task."
+      - alert: LambdaRfbStale
+        expr: time() - lambda_pipeline_last_success_timestamp_seconds{job="lambda_pipeline", pipeline="rfb"} > 40 * 86400
+        labels: {severity: warning}
+        annotations:
+          summary: "RFB pipeline without a successful run for {{ $value | humanizeDuration }}"
+          description: "The Receita publishes monthly; more than 40 days without success means a missed month."
+  - name: lambda-airflow
+    rules:
+      - alert: AirflowSchedulerStalled
+        expr: rate(airflow_scheduler_heartbeat_total[5m]) == 0 or absent(airflow_scheduler_heartbeat_total)
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "Airflow scheduler is not heartbeating"
+          description: "No scheduler heartbeat for 5 minutes: DAG runs will not progress. Check `lab logs airflow-scheduler`."
+      - alert: AirflowTasksStarving
+        expr: airflow_scheduler_tasks_starving > 0
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} Airflow tasks starving for pool slots"
+          description: "Tasks are waiting on a pool for 30 min (rfb_spark has 1 slot by design; check for a stuck Spark task)."

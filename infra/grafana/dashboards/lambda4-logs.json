@@ -1,0 +1,735 @@
+{
+  "uid": "lambda4-logs",
+  "title": "Logs · Airflow & pipeline (raw and treated)",
+  "description": "Raw Airflow task logs and pipeline JSON events (Loki), plus warnings/errors treated in the audit schema (Postgres).",
+  "tags": [
+    "lambda4",
+    "rfb",
+    "logs"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "task",
+        "label": "Airflow task",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "refresh": 2,
+        "query": "label_values({job=\"airflow-tasks\", dag_id=\"rfb_pipeline\"}, task_id)",
+        "definition": "label_values({job=\"airflow-tasks\", dag_id=\"rfb_pipeline\"}, task_id)",
+        "includeAll": true,
+        "allValue": ".+",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "level",
+        "label": "Level",
+        "type": "custom",
+        "query": "WARNING,ERROR,CRITICAL,INFO",
+        "includeAll": false,
+        "multi": true,
+        "current": {
+          "text": [
+            "WARNING",
+            "ERROR",
+            "CRITICAL"
+          ],
+          "value": [
+            "WARNING",
+            "ERROR",
+            "CRITICAL"
+          ]
+        },
+        "options": [
+          {
+            "text": "WARNING",
+            "value": "WARNING",
+            "selected": true
+          },
+          {
+            "text": "ERROR",
+            "value": "ERROR",
+            "selected": true
+          },
+          {
+            "text": "CRITICAL",
+            "value": "CRITICAL",
+            "selected": true
+          },
+          {
+            "text": "INFO",
+            "value": "INFO",
+            "selected": false
+          }
+        ]
+      },
+      {
+        "name": "search",
+        "label": "Search",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Pipeline runs",
+        "enable": true,
+        "iconColor": "#8AB8FF",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "pg-lambda"
+        },
+        "target": {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT started_at AS time, coalesce(finished_at, now()) AS timeend, 'rfb ' || coalesce(ref_month::text, '') || ' ' || status AS text, status AS tags FROM audit.pipeline_run WHERE pipeline = 'rfb' AND $__timeFilter(started_at)",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      }
+    ]
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "lambda4"
+      ],
+      "asDropdown": true,
+      "title": "lambda4 dashboards",
+      "includeVars": false,
+      "keepTime": true
+    }
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Treated: what needs attention",
+      "id": 1,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Pipeline events by level",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (level) (count_over_time({job=\"lambda-pipelines\", pipeline=\"rfb\"} [$__auto]))",
+          "legendFormat": "{{level}}",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 2,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Pipeline events by type",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (event) (count_over_time({job=\"lambda-pipelines\", pipeline=\"rfb\"} | json | __error__=\"\" [$__auto]))",
+          "legendFormat": "{{event}}",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 3,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Warnings and errors by task (range)",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (task) (count_over_time({job=\"lambda-pipelines\", pipeline=\"rfb\", level=~\"WARNING|ERROR|CRITICAL\"} [$__range]))",
+          "legendFormat": "{{task}}",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "barWidth": 0.7,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelRotation": 0,
+        "groupWidth": 0.7,
+        "stacking": "none"
+      },
+      "id": 4,
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 0,
+        "y": 9
+      }
+    },
+    {
+      "type": "table",
+      "title": "Warnings and errors (audit.log_event)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT ts, level, task_id, event, left(message, 300) AS message, run_id FROM audit.log_event WHERE pipeline = 'rfb' AND level IN (${level:singlequote}) AND $__timeFilter(ts) ORDER BY ts DESC LIMIT 500",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "level"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "WARNING": {
+                        "color": "orange",
+                        "index": 0
+                      },
+                      "ERROR": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "CRITICAL": {
+                        "color": "dark-red",
+                        "index": 2
+                      },
+                      "INFO": {
+                        "color": "text",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "level"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ts"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 5,
+      "gridPos": {
+        "h": 9,
+        "w": 16,
+        "x": 8,
+        "y": 9
+      }
+    },
+    {
+      "type": "table",
+      "title": "Task errors with traceback",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT ts, task_id, fields->>'error_class' AS error_class, left(message, 300) AS message, right(fields->>'traceback', 1500) AS traceback FROM audit.log_event WHERE pipeline = 'rfb' AND event = 'task_error' AND $__timeFilter(ts) ORDER BY ts DESC LIMIT 50",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ts"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 6,
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      }
+    },
+    {
+      "type": "row",
+      "title": "Raw: Airflow task logs",
+      "id": 7,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Airflow task log lines by level",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (level) (count_over_time({job=\"airflow-tasks\", dag_id=\"rfb_pipeline\", task_id=~\"$task\"} [$__auto]))",
+          "legendFormat": "{{level}}",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 8,
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Airflow task logs ($task)",
+      "description": "Exactly what the Airflow UI shows per task attempt (stdout of the scripts included).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{job=\"airflow-tasks\", dag_id=\"rfb_pipeline\", task_id=~\"$task\"} |~ \"(?i)$search\"",
+          "legendFormat": "",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none",
+        "prettifyLogMessage": false
+      },
+      "id": 9,
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      }
+    },
+    {
+      "type": "row",
+      "title": "Raw: pipeline JSON events",
+      "id": 10,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 47
+      },
+      "panels": []
+    },
+    {
+      "type": "logs",
+      "title": "Pipeline events (JSON, one event per line)",
+      "description": "Structured events written by pipelines/commons/logger.py; open a line to see every field.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{job=\"lambda-pipelines\", pipeline=\"rfb\"} |~ \"(?i)$search\"",
+          "legendFormat": "",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none",
+        "prettifyLogMessage": false
+      },
+      "id": 11,
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      }
+    }
+  ]
+}

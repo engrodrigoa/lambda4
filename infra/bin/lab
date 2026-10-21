@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+# lab — painel de saúde do laboratório lambda (estilo "docker ps")
+#   lab               tabela de serviços + checagens de infra/dados
+#   lab -q            só o que está com problema (exit code = nº de falhas; bom p/ cron/alerta)
+#   lab -w [seg]      atualiza a cada N segundos (padrão 5)
+#   lab urls          mapa de portas/URLs da stack (via túnel ssh)
+#   lab logs <nome> [-f]   journalctl do serviço (ex.: lab logs qdrant -f)
+#   lab restart <nome>     systemctl restart do serviço
+# Instalar:  install -m 0755 lab ~/.local/bin/lab
+set -u
+export LC_ALL=C
+
+# nome | unit systemd | porta | checagem (/path = HTTP | tcp | pg | unit) | URL via túnel
+SERVICES='
+#dados
+postgres|postgresql@auto|5432|pg|localhost:5433 (DBeaver)
+seaweedfs-master|seaweedfs|9333|/cluster/status|http://localhost:9333
+seaweedfs-s3|seaweedfs|8333|/|http://localhost:8333 (S3)
+seaweedfs-filer|seaweedfs|8888|/|http://localhost:8888
+seaweedfs-volume|seaweedfs|9340|tcp|-
+#orquestração
+airflow-api|airflow-api-server|8080|/api/v2/monitor/health|http://localhost:8080
+airflow-scheduler|airflow-scheduler|-|unit|-
+airflow-dag-proc|airflow-dag-processor|-|unit|-
+airflow-triggerer|airflow-triggerer|-|unit|-
+elementary-report|elementary-report|8090|/elementary_report.html|http://localhost:8090/elementary_report.html
+#spark
+spark-master|spark-master|8088|/|http://localhost:8088
+spark-worker|spark-worker|8089|/|http://localhost:8089
+spark-history|spark-history|18080|/|http://localhost:18080
+spark-thrift|spark-thrift|10000|tcp|jdbc:hive2://localhost:10000 (DBeaver, on demand)
+#observabilidade
+prometheus|prometheus|9090|/-/healthy|http://localhost:9090
+alertmanager|prometheus-alertmanager|9093|/-/healthy|http://localhost:9093
+grafana|grafana-server|3000|/api/health|http://localhost:3000
+loki|loki|3100|/ready|-
+alloy|alloy|12345|/-/ready|http://localhost:12345
+pushgateway|prometheus-pushgateway|9091|/-/ready|http://localhost:9091
+node-exporter|prometheus-node-exporter|9100|/metrics|-
+postgres-exporter|prometheus-postgres-exporter|9187|/metrics|-
+#ia
+qdrant|qdrant|6333|/readyz|http://localhost:6333/dashboard
+mlflow|mlflow|5000|/health|http://localhost:5000
+phoenix|phoenix|6006|/healthz|http://localhost:6006
+ollama|ollama|11434|/api/version|http://localhost:11434
+'
+
+if [[ -t 1 ]]; then
+  RED=$'\e[31m'; GRN=$'\e[32m'; YLW=$'\e[33m'; DIM=$'\e[2m'; BLD=$'\e[1m'; RST=$'\e[0m'
+else RED=; GRN=; YLW=; DIM=; BLD=; RST=; fi
+
+pg_unit() { systemctl list-units --all --plain --no-legend 'postgresql@*' 2>/dev/null | awk 'NR==1{print $1}'; }
+human_b() { awk -v b="$1" 'BEGIN{ if(b==""||b<0){print "-";exit} s="B K M G"; split(s,u," "); i=1; while(b>=1024&&i<4){b/=1024;i++} printf (i==1?"%d%s":"%.1f%s"), b, u[i] }'; }
+human_t() { local s=$1; (( s<0 )) && { echo -; return; }
+  if (( s<90 )); then echo "${s}s"; elif (( s<5400 )); then echo "$((s/60))m"; elif (( s<172800 )); then echo "$((s/3600))h"; else echo "$((s/86400))d"; fi; }
+
+CODE=000; MS=0
+http_check() { # porta path
+  local out; out=$(curl -s -o /dev/null -m 3 -w '%{http_code} %{time_total}' "http://127.0.0.1:$1$2" 2>/dev/null) || out="000 0"
+  CODE=${out% *}; MS=$(awk -v t="${out#* }" 'BEGIN{printf "%d", t*1000}')
+  case $CODE in 2??|3??|401|403) return 0;; *) return 1;; esac
+}
+tcp_check() { timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null; }
+
+fails=0; FAILED=()
+status_table() {
+  local quiet=$1 prev_unit="" grp=""
+  fails=0; FAILED=()
+  [[ $quiet == 1 ]] || printf '%s%-19s %-29s %-9s %-6s %-14s %-7s %-6s %s%s\n' "$BLD" SERVICE UNIT STATE PORT HEALTH MEM UP URL "$RST"
+  while IFS='|' read -r name unit port chk url; do
+    [[ -z ${name:-} ]] && continue
+    if [[ $name == \#* ]]; then grp=${name#\#}; [[ $quiet == 1 ]] || printf '%s── %s%s\n' "$DIM" "$grp" "$RST"; continue; fi
+    [[ $unit == postgresql@auto ]] && unit=$(pg_unit)
+    local state mem up ts ok=1 health
+    if [[ -z $unit ]] || ! systemctl cat "$unit" >/dev/null 2>&1; then state="n/a"; ok=0
+    else state=$(systemctl is-active "$unit" 2>/dev/null); [[ $state == active ]] || ok=0; fi
+
+    case $chk in
+      /*)  if http_check "$port" "$chk"; then health="${GRN}ok${RST} ${CODE} ${MS}ms"; else health="${RED}FAIL${RST} ${CODE}"; ok=0; fi ;;
+      tcp) if tcp_check "$port"; then health="${GRN}ok${RST} tcp"; else health="${RED}FAIL${RST} tcp"; ok=0; fi ;;
+      pg)  if pg_isready -q -h /var/run/postgresql 2>/dev/null || tcp_check "$port"; then health="${GRN}ok${RST} ready"; else health="${RED}FAIL${RST} pg"; ok=0; fi ;;
+      *)   if [[ $state == active ]]; then health="${GRN}ok${RST} unit"; else health="${RED}FAIL${RST}"; fi ;;
+    esac
+
+    mem="-"; up="-"
+    if [[ $state == active ]]; then
+      if [[ $unit == "$prev_unit" ]]; then mem='〃'; up='〃'; else
+        local m; m=$(systemctl show -p MemoryCurrent --value "$unit" 2>/dev/null)
+        [[ $m =~ ^[0-9]+$ && $m != 18446744073709551615 ]] && mem=$(human_b "$m")
+        ts=$(systemctl show -p ActiveEnterTimestamp --value "$unit" 2>/dev/null)
+        [[ -n $ts ]] && up=$(human_t $(( $(date +%s) - $(date -d "$ts" +%s 2>/dev/null || date +%s) )))
+      fi
+    fi
+    prev_unit=$unit
+
+    local scol=$GRN; [[ $state == active ]] || scol=$RED
+    if (( ok == 0 )); then fails=$((fails+1)); FAILED+=("$name"); fi
+    if [[ $quiet == 1 && $ok == 1 ]]; then continue; fi
+    # health tem códigos de cor: imprime em %b e preenche manualmente
+    local plain; plain=$(sed 's/\x1b\[[0-9;]*m//g' <<<"$health"); local pad=$((14 - ${#plain})); (( pad<0 )) && pad=0
+    printf '%-19s %-29s %s%-9s%s %-6s %b%*s %-7s %-6s %s%s%s\n' "$name" "${unit:-?}" "$scol" "$state" "$RST" "$port" "$health" "$pad" "" "$mem" "$up" "$DIM" "$url" "$RST"
+  done <<<"$SERVICES"
+}
+
+extras() {
+  local quiet=$1 line
+  [[ $quiet == 1 ]] || printf '\n%s%-19s %s%s\n' "$BLD" "INFRA / DADOS" "DETALHE" "$RST"
+  row() { # nome ok(0/1) detalhe
+    if [[ $2 == 1 ]]; then [[ $quiet == 1 ]] || printf '%-19s %sok%s   %s\n' "$1" "$GRN" "$RST" "$3"
+    else printf '%-19s %sFAIL%s %s\n' "$1" "$RED" "$RST" "$3"; fails=$((fails+1)); FAILED+=("$1"); fi; }
+
+  for m in /mnt/datalake /mnt/scratch; do
+    if mountpoint -q "$m"; then
+      line=$(df -h --output=pcent,avail "$m" | tail -1 | awk '{print $1" usado, "$2" livres"}')
+      pct=$(df --output=pcent "$m" | tail -1 | tr -dc 0-9)
+      if (( pct >= 90 )); then row "$m" 0 "$line"; else row "$m" 1 "$line"; fi
+    else row "$m" 0 "NÃO MONTADO"; fi
+  done
+  line=$(df -h --output=pcent,avail / | tail -1 | awk '{print $1" usado, "$2" livres"}'); pct=$(df --output=pcent / | tail -1 | tr -dc 0-9)
+  if (( pct >= 90 )); then row "/ (ssd)" 0 "$line"; else row "/ (ssd)" 1 "$line"; fi
+  line=$(free -h | awk '/^Mem:/{print $3" usados de "$2", "$7" disponíveis"}'); av=$(free -m | awk '/^Mem:/{print $7}')
+  if (( av < 1500 )); then row memória 0 "$line"; else row memória 1 "$line"; fi
+  read -r l1 l5 l15 _ < /proc/loadavg; nc=$(nproc)
+  if awk -v l="$l5" -v n="$nc" 'BEGIN{exit !(l>n*1.5)}'; then row carga 0 "$l1 $l5 $l15 (${nc} cores)"; else row carga 1 "$l1 $l5 $l15 (${nc} cores)"; fi
+
+  fu=$(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | paste -sd, -)
+  [[ -z $fu ]] && row "units systemd" 1 "nenhuma em failed" || row "units systemd" 0 "failed: $fu"
+  if command -v tailscale >/dev/null; then
+    ip=$(tailscale ip -4 2>/dev/null | head -1)
+    [[ -n $ip ]] && row tailscale 1 "$ip" || row tailscale 0 "desconectado"
+  fi
+
+  if psql -d lambda -tAc "select 1" >/dev/null 2>&1; then
+    dbs=$(psql -d postgres -tAc "select string_agg(datname,',' order by datname) from pg_database where datname in ('airflow','lambda','iceberg_catalog','mlflow','phoenix')" 2>/dev/null)
+    n=$(tr ',' '\n' <<<"$dbs" | grep -c .)
+    (( n == 5 )) && row "postgres: bancos" 1 "$dbs" || row "postgres: bancos" 0 "esperado 5, achei: $dbs"
+    pgv=$(psql -d lambda -tAc "select extversion from pg_extension where extname='vector'" 2>/dev/null)
+    [[ -n $pgv ]] && row "pgvector" 1 "v$pgv (banco lambda)" || row "pgvector" 0 "extensão ausente no banco lambda"
+    nf=$(psql -d airflow -tAc "select count(*) from dag_run where state='failed' and coalesce(end_date,start_date) > now() - interval '24 hours'" 2>/dev/null || echo "?")
+    [[ $nf == 0 ]] && row "airflow: DAG runs" 1 "0 falhas nas últimas 24h" || row "airflow: DAG runs" 0 "${nf} falha(s) nas últimas 24h"
+  else row "postgres: acesso" 0 "psql -d lambda falhou"; fi
+
+  if tj=$(curl -s -m 3 http://127.0.0.1:9090/api/v1/targets 2>/dev/null) && [[ -n $tj ]]; then
+    tot=$(jq '.data.activeTargets|length' <<<"$tj"); down=$(jq -r '[.data.activeTargets[]|select(.health!="up")|.labels.job]|join(",")' <<<"$tj")
+    [[ -z $down ]] && row "prometheus targets" 1 "$tot/$tot up" || row "prometheus targets" 0 "fora do ar: $down"
+  fi
+  if aj=$(curl -s -m 3 'http://127.0.0.1:9093/api/v2/alerts?active=true&silenced=false' 2>/dev/null) && [[ -n $aj ]]; then
+    al=$(jq -r '[.[]|.labels.alertname]|join(",")' <<<"$aj")
+    [[ -z $al ]] && row "alertas ativos" 1 "nenhum" || row "alertas ativos" 0 "$al"
+  fi
+  if [[ -d /mnt/datalake/models/ollama ]]; then
+    mo=$(curl -s -m 3 http://127.0.0.1:11434/api/tags 2>/dev/null | jq -r '[.models[].name]|join(", ")' 2>/dev/null)
+    [[ $quiet == 1 ]] || printf '%-19s %s%s%s\n' "ollama: modelos" "$DIM" "${mo:-nenhum}" "$RST"
+  fi
+}
+
+summary() {
+  if (( fails == 0 )); then printf '\n%s✔ tudo saudável%s  (%s)\n' "$GRN" "$RST" "$(date '+%d/%m %H:%M:%S')"
+  else printf '\n%s✘ %d com problema:%s %s   %s→ lab logs <nome>%s\n' "$RED" "$fails" "$RST" "${FAILED[*]}" "$DIM" "$RST"; fi
+}
+
+resolve_unit() { # nome (ou parte) -> unit
+  local q=$1 name unit
+  while IFS='|' read -r name unit _; do
+    [[ -z $name || $name == \#* ]] && continue
+    if [[ $name == "$q" || $unit == "$q" ]]; then [[ $unit == postgresql@auto ]] && unit=$(pg_unit); echo "$unit"; return; fi
+  done <<<"$SERVICES"
+  while IFS='|' read -r name unit _; do
+    [[ -z $name || $name == \#* ]] && continue
+    if [[ $name == *"$q"* ]]; then [[ $unit == postgresql@auto ]] && unit=$(pg_unit); echo "$unit"; return; fi
+  done <<<"$SERVICES"
+}
+
+cmd=${1:-ps}
+case $cmd in
+  ps|"")  status_table 0; extras 0; summary; exit $(( fails>0 )) ;;
+  -q|quiet) status_table 1; extras 1; (( fails==0 )) && echo "${GRN}✔ tudo saudável${RST}" || summary; exit $(( fails>0 )) ;;
+  -w|watch) iv=${2:-5}; while true; do clear; echo "${DIM}lab -w ${iv}s — Ctrl+C sai${RST}"; status_table 0; extras 0; summary; sleep "$iv"; done ;;
+  urls)   printf '%s%-19s %-7s %s%s\n' "$BLD" SERVICE PORTA URL "$RST"
+          while IFS='|' read -r name unit port chk url; do
+            [[ -z $name ]] && continue; [[ $name == \#* ]] && { printf '%s── %s%s\n' "$DIM" "${name#\#}" "$RST"; continue; }
+            printf '%-19s %-7s %s\n' "$name" "$port" "$url"; done <<<"$SERVICES"
+          printf '\n%sOutras portas: spark RPC 7077 | phoenix OTLP gRPC 4317 | qdrant gRPC 6334 | loki gRPC 9096%s\n' "$DIM" "$RST" ;;
+  logs)   u=$(resolve_unit "${2:-}"); [[ -n $u ]] || { echo "serviço não encontrado: ${2:-} (veja: lab urls)"; exit 1; }
+          f=(-n 100 --no-pager); [[ ${3:-} == -f ]] && f=(-n 50 -f)
+          journalctl -u "$u" "${f[@]}" 2>/dev/null || sudo journalctl -u "$u" "${f[@]}" ;;
+  restart) u=$(resolve_unit "${2:-}"); [[ -n $u ]] || { echo "serviço não encontrado: ${2:-}"; exit 1; }
+          sudo systemctl restart "$u" && systemctl is-active "$u" ;;
+  -h|--help|help) sed -n '2,10p' "$0" ;;
+  *) echo "uso: lab [ps|-q|-w [s]|urls|logs <nome> [-f]|restart <nome>]"; exit 2 ;;
+esac

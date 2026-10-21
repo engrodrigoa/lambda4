@@ -1,0 +1,26 @@
+# Spark Thrift Server: JDBC/ODBC (HiveServer2 protocol) over the Delta tables of the Hive metastore.
+# DBeaver -> SSH tunnel -> 127.0.0.1:10000, driver "Apache Spark" (Hive JDBC), no auth (localhost only).
+# On demand (not enabled at boot). Capped at 2 cores / 2 GB so a running pipeline still gets 4 worker cores.
+[Unit]
+Description=Spark Thrift Server (JDBC over Delta, lambda4)
+After=network-online.target spark-master.service
+Requires=spark-master.service
+
+[Service]
+User=lambda
+Group=datalake
+Environment=SPARK_HOME=/opt/spark
+Environment=SPARK_CONF_DIR=/etc/spark
+Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+Environment=SPARK_LOCAL_IP=127.0.0.1
+ExecStart=/opt/spark/bin/spark-submit --class org.apache.spark.sql.hive.thriftserver.HiveThriftServer2 \
+  --name lambda-thriftserver --master spark://127.0.0.1:7077 \
+  --total-executor-cores 2 --executor-memory 2g --driver-memory 2g \
+  --hiveconf hive.server2.thrift.bind.host=127.0.0.1 --hiveconf hive.server2.thrift.port=10000 \
+  spark-internal
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
