@@ -1,6 +1,6 @@
 # Projeto Lambda (lambda4)
 
-> RASCUNHO v0 — gerado em 2026-10-18 após inspeção da máquina. Itens marcados com `[?]` aguardam confirmação do dono.
+> Contexto do projeto Lambda (atualizado em 2026-10-21). Referência técnica: `docs/architecture.md`.
 
 ## Papel do assistente
 Instrutor + assistente de engenharia de dados/IA. Guiar com boas práticas de modelagem de pipelines,
@@ -9,7 +9,7 @@ ações com root/sudo. Respostas em português (pt-BR).
 
 ## Escopo
 - Este projeto é **somente Lambda** (laboratório local). Não misturar com o contexto "datalabs".
-- Repositório: https://github.com/engrodrigoa/lambda4 (remoto, aparentemente vazio) — dono: engrodrigoa.
+- Repositório: https://github.com/engrodrigoa/lambda4 (branch `master`) — dono: engrodrigoa.
 - Leitura liberada em todo o GitHub `engrodrigoa` para referências.
 
 ## Máquina
@@ -68,20 +68,30 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 - Buckets (SeaweedFS S3): `bronze`, `silver`, `gold`, `ctrl`, `warehouse` (Iceberg), `mlflow`. Secrets: `~/.config/lambda/secrets/` (never in git).
 - Learning report for the owner: `docs/learning/`.
 
-## Pipeline code (state 2026-10-18)
-- `pipelines/commons/`: `settings` (env + `~/.config/lambda/lambda.env`), `refmonth`, `context` (Airflow AIRFLOW_CTX_* or manual run_id; `LAMBDA_RUN_ID` shares a run), `logger` (stdout + `/var/log/lambda/<pipeline>/*.jsonl` -> Alloy -> Loki + mirror to `audit.log_event`), `audit` (best-effort, spools to `/srv/scratch/audit-spool` if Postgres is down), `metrics` (Pushgateway, pushadd per pipeline/task), `dq` (the ONE severity registry), `task` (`TaskRun`/`run_task`: exit 0 ok, 99 skipped, 1 failed), `http` (retrying fetcher, sha256 while streaming), `landing` (`LANDING_URI`, file:// only), `spark` (session factory), `ctrl` (Delta control tables + `InMemoryCtrl`).
-- `pipelines/rfb/`: `contract` (37 files + column layout per entity), `source` (share, probe, named failure causes), `rfb01_download` (`python -m pipelines.rfb.rfb01_download --ref-month 2026-09|next`).
-- Tests: `~/.envs/env-data/bin/python -m pytest` (no services touched); lint: `~/.envs/env-data/bin/ruff check pipelines tests`.
-- `pipelines/rfb/rfb02_extract` (ZIP -> record-aligned UTF-8 chunks on `/srv/scratch/rfb-extract`, exact record counts, `_manifest.json`) and `rfb03_bronze` (chunks -> `rfb_bronze.<entity>` Delta, multiLine + PERMISSIVE, reconciliation BLOCK, quarantine to Delta `audit.quarantine`, watermark `bronze.<entity>`, retention guarded by silver watermark, scratch cleanup). Run per entity: `--entity estabelecimentos|empresas|socios|simples|domains|all`. `pipelines/commons/csv_split.py` and `quarantine.py` are generic.
-- **Spark is pinned to 4.1.0** (ADR 0002): every Delta release for Spark 4.1 (4.1.0..4.4.1) is compiled against Spark 4.1.0 and uses Spark internals that changed in 4.1.x patches (4.1.3 broke the DeltaTable API and DELETE). `/opt/spark -> /opt/spark-4.1.0`; `/opt/spark-4.1.3` kept for rollback; `pyspark==4.1.0` in env-data. Never upgrade Spark or Delta alone: check the Delta pom's spark version first.
-- Known issue: the Delta SQL extension breaks `spark.sql(..., args=...)` parameter binding (UNBOUND_SQL_PARAMETER, also on 4.1.0). Use the DataFrame API for filtered reads; literal SQL only with values from code.
-- Known noise: `ERROR HiveAlterHandler: Failed to alter table` after Delta writes is harmless (Spark falls back to its own metastore format; Delta tables are not Hive-compatible).
-- Pushgateway: `127.0.0.1:9091` (persistence `/var/lib/prometheus/pushgateway.data`), Prometheus job `pushgateway` with `honor_labels`.
+## Pipeline code (state 2026-10-21)
+- Reference: `docs/architecture.md` (flow, DAG, lineage per step, data model, observability map, runbook). ADRs 0001-0004. Study reports `docs/learning/01..04` (pt-BR).
+- `pipelines/commons/`: settings (`lake_uri`, env file), refmonth, context (Airflow ctx, `airflow_task_id`), logger, audit (best-effort sink + spool), metrics (Pushgateway), dq (THE severity registry), task (`TaskRun`/`run_task`, exit 0/99/1, SIGTERM -> recorded failure), http, landing, spark, ctrl (Delta control + `InMemoryCtrl`), csv_split, quarantine, lake (DuckDB views over Delta via the metastore), delta_stats (`audit.delta_table_stats`), scd2 (generic SCD2 MERGE, rollback, as_of, table property `lambda.scd2.last_month`), finalize_run, airflow_callbacks.
+- `pipelines/rfb/`: contract (37 files, columns, fixed CODES), source, rfb00_preflight, rfb01_download, rfb02_extract, rfb03_bronze, silver_model + rfb04_silver (SCD2), rfb05_gold (`--target dims|estabelecimento_atual|socio_atual|fato_mudanca_cadastral|agg_estabelecimentos_mensal`), rfb06_maintenance.
+- DAG `rfb_pipeline` = `airflow/dags/dag_rfb.py` (symlinked into `~/airflow/dags/lambda4`): 24 tasks, param `ref_month`, pools `rfb_spark`(1) / `rfb_extract`(1), skip on exit 99, finalize `all_done` (fails if the run failed). Created PAUSED; **the owner runs it himself** (never trigger it without being asked).
+- Real data so far: landing + extract + bronze of 2026-09 (222,197,007 rows). Silver/gold built and unit-tested on local Spark, NOT yet run on real data.
+- Tests: `~/.envs/env-data/bin/python -m pytest` (39 tests; `tests/spark/` = local Spark + Delta in a temp folder, never the lake; `-m "not spark"` to skip). Lint: `ruff check pipelines tests airflow infra`.
+- Known issue: the Delta SQL extension breaks `spark.sql(..., args=...)` (UNBOUND_SQL_PARAMETER). Use the DataFrame API; literal SQL only with values from code.
+- Known noise: `ERROR HiveAlterHandler: Failed to alter table` after Delta writes is harmless.
+- **Spark is pinned to 4.1.0** (ADR 0002). Never upgrade Spark or Delta alone.
+
+## Observability (state 2026-10-21, ADR 0004)
+- Postgres `audit`: pipeline_run, task_run (+airflow_task_id), dq_event, log_event (monthly partitions, 90 d), quarantine_summary, health_check, delta_table_stats, views v_last_runs / v_task_latest / v_dq_open / v_logs_recent / v_trace_spans. DDL: `infra/postgres/audit_schema.sql` (idempotent).
+- Loki: `job=lambda-pipelines` (pipeline JSON events) and `job=airflow-tasks` (raw Airflow task logs, labels dag_id/task_id/attempt/level). Airflow logs live in `/var/log/lambda/airflow`.
+- Prometheus: `job=lambda_pipeline` (Pushgateway batch metrics), `airflow_*` (Airflow OpenTelemetry -> Alloy OTLP :4318 -> remote write; Prometheus runs with `--web.enable-remote-write-receiver`). Rules: `infra/prometheus/rules/lambda_pipeline.yml` (reload: `sudo systemctl reload prometheus`).
+- Grafana folder "Lambda4 · RFB": dashboards as code `infra/grafana/build_dashboards.py` -> `infra/grafana/install.sh`; `infra/grafana/validate_dashboards.py` runs every query. Do not edit dashboards in the UI (not persisted).
+- Phase 2 proposal (not installed): Grafana Tempo + OpenTelemetry SDK spans in TaskRun + Airflow OTel traces.
+- Spark Thrift Server (JDBC over Delta, DBeaver): `sudo systemctl start|stop spark-thrift` (on demand, 2 cores / 2 GB), `jdbc:hive2://localhost:10000`.
+- `lab` is versioned in `infra/bin/lab` (install: `install -m 0755 infra/bin/lab ~/.local/bin/lab`).
 
 ## Owner access (from odyssey, via Tailscale + SSH)
 - Postgres for DBeaver: role `dbeaver_ro` (read-only: `audit`, `analytics`, `analytics_elementary` in db `lambda`); the owner sets its password with `sudo -u postgres psql -c "\password dbeaver_ro"`. Never paste passwords in chat or git. `lambda` is superuser (peer auth on the server).
 - DBeaver: use its SSH tab (host `lambdaserver`, user `lambda`) -> Postgres `127.0.0.1:5432`, db `lambda`.
-- One tunnel for the UIs: `ssh -N -L 8080:127.0.0.1:8080 -L 3000:127.0.0.1:3000 -L 8088:127.0.0.1:8088 -L 4040:127.0.0.1:4040 -L 18080:127.0.0.1:18080 -L 5433:127.0.0.1:5432 lambda@lambdaserver`.
+- One tunnel for the UIs: `ssh -N -L 8080:127.0.0.1:8080 -L 3000:127.0.0.1:3000 -L 8088:127.0.0.1:8088 -L 4040:127.0.0.1:4040 -L 18080:127.0.0.1:18080 -L 5433:127.0.0.1:5432 -L 10000:127.0.0.1:10000 lambda@lambdaserver`.
 - Reading Delta: `pipelines/commons/lake.py` -> `duckdb_lake()` gives DuckDB views with the metastore names (`rfb_bronze.*`, `ctrl.*`, `audit.quarantine`) over `delta_scan`; Spark (`build_spark(..., master="local[4]")`) for history/time travel/CDF. Notebook: `notebooks/rfb_bronze_explore.ipynb`, kernel **Python (lambda-data)**. Commit notebooks WITHOUT outputs (they contain cadastral data).
 - Bronze lives in SeaweedFS S3 `s3://bronze/rfb/<entity>/` (Delta: `_delta_log/` + `_ref_month=YYYYMM/*.zstd.parquet`), physically under `/mnt/datalake/seaweedfs`.
 
@@ -92,8 +102,8 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 | dados | SeaweedFS (master/volume/filer/S3) | 9333 / 9340 / 8888 / 8333 |
 | orquestração | Airflow 3 (api-server, scheduler, dag-processor, triggerer) | 8080 |
 | orquestração | dbt + Elementary (report) | 8090 |
-| spark | master / worker / history (Spark **4.1.0** em `/opt/spark`, fixado pelo Delta) | 8088 / 8089 / 18080 |
-| observabilidade | Prometheus, Alertmanager, Grafana, Loki, Alloy, Pushgateway, node/postgres exporters | 9090 / 9093 / 3000 / 3100 / 12345 / 9091 / 9100 / 9187 |
+| spark | master / worker / history / thrift (Spark **4.1.0** em `/opt/spark`, fixado pelo Delta) | 8088 / 8089 / 18080 / 10000 |
+| observabilidade | Prometheus, Alertmanager, Grafana, Loki, Alloy (+OTLP 4318), Pushgateway, node/postgres exporters | 9090 / 9093 / 3000 / 3100 / 12345 / 9091 / 9100 / 9187 |
 | ia | MLflow, Phoenix, Qdrant, Ollama | 5000 / 6006 / 6333 / 11434 |
 
 Todos os serviços escutam em localhost; acesso remoto por **túnel SSH** (`lab urls`).
@@ -110,18 +120,18 @@ Todos os serviços escutam em localhost; acesso remoto por **túnel SSH** (`lab 
 - **Commits, código, comentários e docs técnicos em inglês.** Conversa com o dono em pt-BR.
 - Autenticação GitHub: `gh` (HTTPS, keyring) como `engrodrigoa`; identidade git global já configurada.
 - Segredos fora do git (`.env`/arquivos em `~/.config/lambda/`, `.gitignore` obrigatório).
-- Medalhão: bronze → silver → gold (Iceberg no SeaweedFS S3), transformações dbt, orquestração Airflow.
-- Todo pipeline: idempotente, com testes dbt/Elementary, métricas no Prometheus, logs no Loki, alerta no Alertmanager.
+- Medalhão: bronze → silver (SCD2) → gold, em **Delta** no SeaweedFS S3, transformações em **PySpark**, orquestração Airflow.
+- Todo pipeline: idempotente, com checks BLOCK/WARN (`pipelines/commons/dq.py`), audit no Postgres, métricas no Prometheus, logs no Loki, alertas no Prometheus/Alertmanager, dashboards como código.
 
 ## Ciclo de vida dos serviços (aplicado em 2026-10-18)
 - **Sobem no boot (enabled):** postgresql, airflow (api-server, scheduler, dag-processor, triggerer), elementary-report, grafana, prometheus, alertmanager, pushgateway, node/postgres exporters, tailscaled.
-- **Sob demanda (disabled no boot):** seaweedfs, spark-master/worker/history, mlflow (depende de seaweedfs), qdrant, ollama, phoenix, loki, alloy. Ligar/desligar com `sudo systemctl start|stop <unit>` até existir `lab start|stop`.
+- **Sob demanda (disabled no boot):** seaweedfs, spark-master/worker/history, spark-thrift, mlflow (depende de seaweedfs), qdrant, ollama, phoenix, loki, alloy. Ligar/desligar com `sudo systemctl start|stop <unit>` até existir `lab start|stop`.
 - Alertas de "alvo fora do ar" para serviços sob demanda são esperados; refinar regras do Alertmanager depois.
 
 ## Pendências conhecidas
 1. Considerar disco maior/com fonte própria para o datalake (320 GB, bus-powered).
-2. Serviços sob demanda ainda desligados; subir e validar com `lab` agora que o disco voltou.
-3. Implementar `lab start|stop`; silenciar alertas dos serviços sob demanda.
-4. VS Code desktop não instalado; acesso de edição remota é via `~/.vscode-server` (Remote-SSH a partir do odyssey).
-5. Projeto 1 definido (RFB via PySpark). CI/CD só depois do primeiro pipeline funcionar.
-6. Feito: ctrl/audit, `pipelines/commons`, `rfb01_download`, `rfb02_extract`, `rfb03_bronze` (2026-09). Próximo: DAG do Airflow (landing -> extract -> bronze por entidade), dashboards Grafana, depois silver SCD2.
+2. Implementar `lab start|stop`; silenciar alertas "alvo fora do ar" dos serviços sob demanda.
+3. Primeira execução real da DAG completa (o dono executa e observa): medir silver/gold com 73 M linhas, ajustar shuffle/memória se houver spill.
+4. Fase 2 de observabilidade: Grafana Tempo + OpenTelemetry SDK (spans no TaskRun) + traces do Airflow.
+5. CI (rodar `pytest` e `ruff` a cada push) depois do primeiro pipeline completo validado.
+6. Backfill de meses anteriores: silver só aceita meses em ordem a partir do primeiro carregado (reconstruir para começar mais cedo).

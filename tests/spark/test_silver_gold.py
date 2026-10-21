@@ -77,3 +77,15 @@ def test_change_events_from_history(spark, lake):
     assert baseline is False
     assert got == sorted([("ALTERACAO", "nome_fantasia", "A", "B"), ("ALTERACAO", "situacao_cadastral", "02", "08"),
                           ("EXCLUSAO", None, None, None), ("INCLUSAO", None, None, None)])
+
+
+def test_dedup_estabelecimentos_with_array_and_dates(spark, lake):
+    df = bronze(spark, "estabelecimentos", [
+        estab(cnae_fiscal_secundaria="4751201,4752100", data_situacao_cadastral="20200101"),
+        estab(cnae_fiscal_secundaria="4751201,4752100", data_situacao_cadastral="20200101"),   # exact duplicate
+        estab(cnae_fiscal_secundaria="9999999", data_situacao_cadastral="20240101"),           # conflict, newer
+    ])
+    winners, losers, ranked = dedup(transform("estabelecimentos", df), MODELS["estabelecimentos"])
+    assert ranked.count() == 2 and losers.count() == 1
+    w = winners.collect()
+    assert len(w) == 1 and w[0]["cnae_fiscal_secundaria"] == ["9999999"]   # newest data_situacao wins
