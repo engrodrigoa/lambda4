@@ -25,7 +25,8 @@ STATUS_COLORS = {"SUCCESS": "green", "FAILED": "red", "RUNNING": "blue", "SKIPPE
 
 
 def status_mappings() -> list[dict]:
-    return [{"type": "value", "options": {k: {"color": v, "index": i} for i, (k, v) in enumerate(STATUS_COLORS.items())}}]
+    options = {k: {"color": v, "index": i} for i, (k, v) in enumerate(STATUS_COLORS.items())}
+    return [{"type": "value", "options": options}]
 
 
 # ----------------------------------------------------------------------------------------------- targets
@@ -275,7 +276,8 @@ def pipeline_health() -> dict:
         status_cols=("status", "severity"), units={"created_at": "dateTimeAsIso"}), 14, 10)
     b.add(table("Reconciliation by entity (rows across layers)", sql(f"""SELECT entity,
         max(rows_out) FILTER (WHERE layer = 'extract') AS extracted,
-        max(rows_in) FILTER (WHERE layer = 'bronze') AS bronze_in, max(rows_out) FILTER (WHERE layer = 'bronze') AS bronze_out,
+        max(rows_in) FILTER (WHERE layer = 'bronze') AS bronze_in,
+        max(rows_out) FILTER (WHERE layer = 'bronze') AS bronze_out,
         max(rows_in) FILTER (WHERE layer = 'silver') AS silver_in,
         sum(rows_rejected) AS quarantined
         FROM audit.task_run WHERE run_id = {R} AND entity IS NOT NULL GROUP BY entity ORDER BY entity"""),
@@ -341,7 +343,8 @@ def airflow_board() -> dict:
 
     b.row("DAG runs")
     b.add(table("rfb_pipeline runs", sql(f"""SELECT run_id, state, run_type, conf->>'ref_month' AS ref_month,
-        queued_at, start_date, end_date, round(extract(epoch FROM coalesce(end_date, now()) - start_date)) AS duration_s,
+        queued_at, start_date, end_date,
+        round(extract(epoch FROM coalesce(end_date, now()) - start_date)) AS duration_s,
         triggering_user_name FROM dag_run WHERE dag_id = {DAG} ORDER BY coalesce(start_date, queued_at) DESC
         LIMIT 30""", ds=AF), status_cols=("state",),
         units={"duration_s": "s", "queued_at": "dateTimeAsIso", "start_date": "dateTimeAsIso",
@@ -355,7 +358,8 @@ def airflow_board() -> dict:
         GROUP BY task_id ORDER BY failed DESC, retried DESC""", ds=AF), x_field="task_id"), 12, 8)
 
     b.row("Task instances (latest run)")
-    latest_run = f"(SELECT run_id FROM dag_run WHERE dag_id = {DAG} ORDER BY coalesce(start_date, queued_at) DESC LIMIT 1)"
+    latest_run = (f"(SELECT run_id FROM dag_run WHERE dag_id = {DAG} "
+                  "ORDER BY coalesce(start_date, queued_at) DESC LIMIT 1)")
     b.add(table("Task instances of the latest run", sql(f"""SELECT task_id, state, try_number, max_tries, pool,
         priority_weight, queued_dttm, start_date, end_date, round(duration::numeric) AS duration_s,
         round(extract(epoch FROM start_date - queued_dttm)::numeric, 1) AS queue_wait_s, hostname, pid
@@ -387,7 +391,8 @@ def logs_board() -> dict:
         {"name": "level", "label": "Level", "type": "custom", "query": "WARNING,ERROR,CRITICAL,INFO",
          "includeAll": False, "multi": True,
          "current": {"text": ["WARNING", "ERROR", "CRITICAL"], "value": ["WARNING", "ERROR", "CRITICAL"]},
-         "options": [{"text": v, "value": v, "selected": v != "INFO"} for v in ("WARNING", "ERROR", "CRITICAL", "INFO")]},
+         "options": [{"text": v, "value": v, "selected": v != "INFO"}
+                     for v in ("WARNING", "ERROR", "CRITICAL", "INFO")]},
         {"name": "search", "label": "Search", "type": "textbox", "query": "", "current": {"text": "", "value": ""}},
     ]
     b.annotations.append(runs_annotation())
