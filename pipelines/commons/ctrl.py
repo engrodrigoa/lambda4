@@ -63,6 +63,9 @@ class CtrlStore(Protocol):
 
 class DeltaCtrl:
     def __init__(self, spark, bucket: str = "ctrl", database: str = "ctrl"):
+        from pipelines.commons.settings import get_settings
+
+        self._settings = get_settings()
         self.spark = spark
         self.bucket = bucket
         self.db = database
@@ -73,12 +76,12 @@ class DeltaCtrl:
         return self.spark.table(f"{self.db}.{table}")
 
     def _loc(self, table: str) -> str:
-        return f"s3a://{self.bucket}/{table}"
+        return self._settings.lake_uri(self.bucket, table)
 
     def ensure(self) -> DeltaCtrl:
         sql = self.spark.sql
         sql(f"CREATE DATABASE IF NOT EXISTS {self.db} COMMENT 'control state: download references, layer "
-            f"watermarks (no logs)' LOCATION 's3a://{self.bucket}/'")
+            f"watermarks (no logs)' LOCATION '{self._settings.lake_uri(self.bucket)}/'")
         sql(f"""CREATE TABLE IF NOT EXISTS {self.db}.download_ref ({_ddl(DOWNLOAD_REF)}) USING DELTA
                 LOCATION '{self._loc("download_ref")}'
                 COMMENT 'current download state per (pipeline, ref_month); CDF keeps every change'

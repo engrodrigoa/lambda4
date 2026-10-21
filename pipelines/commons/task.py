@@ -18,6 +18,7 @@ Exceptions are recorded with their traceback and turned into exit code 1: TaskRu
 from __future__ import annotations
 
 import logging
+import signal
 import time
 import traceback
 from collections.abc import Callable
@@ -41,6 +42,10 @@ _CURRENT: TaskRun | None = None
 
 class TaskSkipped(Exception):
     """Expected 'nothing to do' (e.g. the source has not published the month yet): status SKIPPED, exit 99."""
+
+
+class TaskTerminated(Exception):
+    """SIGTERM received (Airflow timeout, manual kill): recorded as a normal failure before the process exits."""
 
 
 def current_task() -> TaskRun | None:
@@ -128,6 +133,7 @@ class TaskRun:
         sink.write("task_start", {
             "run_id": self.ctx.run_id, "task_id": self.task_id, "attempt": self.attempt, "pipeline": self.pipeline,
             "layer": self.layer, "entity": self.entity, "ref_month": ref, "started_at": now,
+            "airflow_task_id": self.ctx.airflow_task_id,
         })
         _CURRENT = self
         self._t0 = time.monotonic()
@@ -190,10 +196,19 @@ def finalize_pipeline_run(run_id: str, status: str | None = None, ref_month: int
                                              "ref_month": ref_month})
 
 
+def _raise_terminated(signum, frame) -> None:
+    raise TaskTerminated(f"received signal {signal.Signals(signum).name} (timeout or kill)")
+
+
 def run_task(fn: Callable[[TaskRun], None], **task_kwargs: Any) -> int:
-    """Run `fn` inside a TaskRun and return the process exit code (0 ok, 99 skipped, 1 failed)."""
-    task = TaskRun(**task_kwargs)
-    with task:
-        fn(task)
-    get_sink().close()
-    return task.exit_code if task.exit_code is not None else EXIT_FAILED
+    """Run `fn` inside a TaskRun and return the process exit code (0 ok, 99 skipped, 1 failed).
+    SIGTERM (what Airflow sends on timeout/kill before SIGKILL) becomes an exception, so the audit row is closed."""
+    previous = signal.signal(signal.SIGTERM, _raise_terminated)
+    try:
+        task = TaskRun(**task_kwargs)
+        with task:
+            fn(task)
+        get_sink().close()
+        return task.exit_code if task.exit_code is not None else EXIT_FAILED
+    finally:
+        signal.signal(signal.SIGTERM, previous)

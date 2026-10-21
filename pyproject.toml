@@ -8,7 +8,10 @@ requires-python = ">=3.12"
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-q"
-markers = ["integration: needs local services (Postgres, Spark, S3)"]
+markers = [
+    "integration: needs local services (Postgres, Spark, S3)",
+    "spark: local Spark + Delta on synthetic data in a temp folder (slow, never touches the lake)",
+]
 
 [tool.ruff]
 line-length = 120

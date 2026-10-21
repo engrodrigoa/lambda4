@@ -41,6 +41,22 @@ COLUMNS: dict[str, tuple[str, ...]] = {
 }
 
 
+# Fixed code lists from the Receita's layout document (not shipped as files): (dominio, codigo, descricao)
+CODES: tuple[tuple[str, str, str], ...] = (
+    ("situacao_cadastral", "01", "NULA"), ("situacao_cadastral", "02", "ATIVA"),
+    ("situacao_cadastral", "03", "SUSPENSA"), ("situacao_cadastral", "04", "INAPTA"),
+    ("situacao_cadastral", "08", "BAIXADA"),
+    ("porte_empresa", "00", "NAO INFORMADO"), ("porte_empresa", "01", "MICRO EMPRESA"),
+    ("porte_empresa", "03", "EMPRESA DE PEQUENO PORTE"), ("porte_empresa", "05", "DEMAIS"),
+    ("identificador_matriz_filial", "1", "MATRIZ"), ("identificador_matriz_filial", "2", "FILIAL"),
+    ("identificador_socio", "1", "PESSOA JURIDICA"), ("identificador_socio", "2", "PESSOA FISICA"),
+    ("identificador_socio", "3", "ESTRANGEIRO"),
+    ("faixa_etaria", "0", "NAO SE APLICA"), ("faixa_etaria", "1", "0 A 12 ANOS"), ("faixa_etaria", "2", "13 A 20 ANOS"),
+    ("faixa_etaria", "3", "21 A 30 ANOS"), ("faixa_etaria", "4", "31 A 40 ANOS"), ("faixa_etaria", "5", "41 A 50 ANOS"),
+    ("faixa_etaria", "6", "51 A 60 ANOS"), ("faixa_etaria", "7", "61 A 70 ANOS"), ("faixa_etaria", "8", "71 A 80 ANOS"),
+    ("faixa_etaria", "9", "MAIS DE 80 ANOS"),
+)
+
 DOMAIN_ENTITIES = ("cnaes", "motivos", "municipios", "naturezas", "paises", "qualificacoes")
 ENTITY_GROUPS: dict[str, tuple[str, ...]] = {"domains": DOMAIN_ENTITIES}
 ENTITIES = ("empresas", "estabelecimentos", "socios", "simples", *DOMAIN_ENTITIES)

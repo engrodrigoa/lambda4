@@ -39,7 +39,8 @@ class Settings:
     landing_uri: str
     scratch_dir: Path
     log_dir: Path
-    # S3 (SeaweedFS) buckets
+    # S3 (SeaweedFS) buckets; lake_root is the URI prefix of every table (tests point it to a local folder)
+    lake_root: str
     s3_endpoint: str
     bucket_bronze: str
     bucket_silver: str
@@ -61,6 +62,11 @@ class Settings:
     ctrl_spark_master: str
     extra: dict[str, str] = field(default_factory=dict, repr=False)
 
+    def lake_uri(self, bucket: str, *parts: str) -> str:
+        """s3a://<bucket>/<parts...> in production; file:///tmp/.../<bucket>/... in tests."""
+        root = self.lake_root if self.lake_root.endswith("/") else self.lake_root + "/"
+        return root + "/".join([bucket.strip("/"), *[p.strip("/") for p in parts if p]])
+
     def get(self, key: str, default: str | None = None) -> str | None:
         """Any other variable (pipeline specific, e.g. RFB_SHARE_URL) with the same precedence rules."""
         return os.environ.get(key, self.extra.get(key, default))
@@ -80,6 +86,7 @@ def get_settings() -> Settings:
         landing_uri=get("LANDING_URI", "file:///mnt/hdd1tb/lambda-dump/landing"),
         scratch_dir=scratch,
         log_dir=Path(get("LAMBDA_LOG_DIR", "/var/log/lambda")),
+        lake_root=get("LAMBDA_LAKE_ROOT", "s3a://"),
         s3_endpoint=get("LAMBDA_S3_ENDPOINT", "http://127.0.0.1:8333"),
         bucket_bronze=get("LAMBDA_BUCKET_BRONZE", "bronze"),
         bucket_silver=get("LAMBDA_BUCKET_SILVER", "silver"),

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing
 import os
 import shutil
 import sys
@@ -91,7 +92,9 @@ def extract_entity(task: TaskRun, ref: RefMonth, entity: str, *, month_dir: Path
 
     results: list[dict] = []
     t0 = time.monotonic()
-    with ProcessPoolExecutor(max_workers=max(1, min(workers, len(zips)))) as pool:
+    # forkserver: fork() from a multi-threaded process (e.g. one that started a JVM) can deadlock the children
+    ctx = multiprocessing.get_context("forkserver")
+    with ProcessPoolExecutor(max_workers=max(1, min(workers, len(zips))), mp_context=ctx) as pool:
         futures = {pool.submit(_extract_one, str(z), str(out_dir), target_bytes): z.name for z in zips}
         for fut in as_completed(futures):
             r = fut.result()          # a worker error (bad CRC, I/O) propagates and fails the task

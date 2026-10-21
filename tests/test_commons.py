@@ -114,3 +114,15 @@ def test_params_and_metrics_may_reuse_reserved_names():
         t.metric(status="custom", rows_out=1)       # clash with task_end fields: the TaskRun values win
 
     assert _run(body, params={"entity": "x", "layer": "y"}) == EXIT_OK
+
+
+def test_silver_month_order_decisions():
+    from pipelines.rfb.rfb04_silver import decide_order
+
+    m = RefMonth(2026, 9)
+    assert decide_order(None, m, False) == "apply"
+    assert decide_order(202608, m, False) == "apply"
+    assert decide_order(202609, m, False) == "reapply"
+    assert decide_order(202607, m, False).startswith("block:gap")
+    assert decide_order(202607, m, True) == "apply"
+    assert decide_order(202610, m, False).startswith("block:past")

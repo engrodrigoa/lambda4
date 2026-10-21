@@ -32,16 +32,19 @@ def _sql_str(value: str) -> str:
 
 class Quarantine:
     def __init__(self, spark, *, bucket: str = "audit", database: str = "audit"):
+        from pipelines.commons.settings import get_settings
+
         self.spark = spark
         self.db = database
         self.table = f"{database}.quarantine"
-        self.location = f"s3a://{bucket}/quarantine"
+        self.root = get_settings().lake_uri(bucket)
+        self.location = get_settings().lake_uri(bucket, "quarantine")
         self.bucket = bucket
 
     def ensure(self) -> Quarantine:
         self.spark.sql(f"CREATE DATABASE IF NOT EXISTS {self.db} COMMENT 'audit data kept in the lake "
                        f"(quarantined rows); run/task logs live in Postgres schema audit' "
-                       f"LOCATION 's3a://{self.bucket}/'")
+                       f"LOCATION '{self.root}/'")
         self.spark.sql(f"""CREATE TABLE IF NOT EXISTS {self.table} ({DDL}) USING DELTA
                            PARTITIONED BY (pipeline, ref_month) LOCATION '{self.location}'
                            COMMENT 'rows refused by pipelines, kept raw with the reason'""")

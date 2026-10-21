@@ -195,3 +195,87 @@ ORDER BY ts DESC;
 
 GRANT USAGE ON SCHEMA audit TO grafana_ro;
 GRANT SELECT ON ALL TABLES IN SCHEMA audit TO grafana_ro;
+
+-- ================================================================ v2 (2026-10-21): Airflow link, health, table stats, traces
+ALTER TABLE audit.task_run ADD COLUMN IF NOT EXISTS airflow_task_id text;   -- Airflow task id (callbacks find the row)
+CREATE INDEX IF NOT EXISTS task_run_airflow_idx ON audit.task_run (run_id, airflow_task_id, attempt);
+
+-- ---------------------------------------------------------------- health_check: infra probes at the start of a run
+CREATE TABLE IF NOT EXISTS audit.health_check (
+    id          bigserial PRIMARY KEY,
+    checked_at  timestamptz NOT NULL DEFAULT now(),
+    run_id      text NOT NULL,
+    task_id     text,
+    pipeline    text NOT NULL,
+    component   text NOT NULL,        -- s3, spark_master, metastore, audit_db, pushgateway, loki, disk:<mount>, ...
+    status      text NOT NULL CHECK (status IN ('OK','WARN','FAIL')),
+    latency_ms  numeric,
+    detail      jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS health_check_idx ON audit.health_check (pipeline, component, checked_at DESC);
+
+-- ---------------------------------------------------------------- delta_table_stats: one row per Delta table write/maintenance
+CREATE TABLE IF NOT EXISTS audit.delta_table_stats (
+    id              bigserial PRIMARY KEY,
+    captured_at     timestamptz NOT NULL DEFAULT now(),
+    run_id          text,
+    task_id         text,
+    pipeline        text NOT NULL,
+    layer           text NOT NULL,            -- bronze | silver | gold | ctrl | audit
+    table_name      text NOT NULL,            -- e.g. rfb_silver.estabelecimento_hist
+    ref_month       int,
+    operation       text,                     -- WRITE, MERGE, OPTIMIZE, VACUUM END, DELETE ...
+    delta_version   bigint,
+    num_files       bigint,                   -- whole table after the operation (DESCRIBE DETAIL)
+    size_bytes      bigint,
+    rows_total      bigint,                   -- whole table (from Delta stats)
+    rows_written    bigint,                   -- this operation (numOutputRows / inserted+updated)
+    rows_inserted   bigint,
+    rows_updated    bigint,
+    rows_deleted    bigint,
+    files_added     bigint,
+    files_removed   bigint,
+    op_metrics      jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS delta_table_stats_idx ON audit.delta_table_stats (pipeline, table_name, captured_at DESC);
+
+-- ---------------------------------------------------------------- v_trace_spans: a run as a trace (Grafana Traces panel)
+-- root span = pipeline_run, child spans = task_run attempts, grandchild spans = timed step events (fields.seconds)
+CREATE OR REPLACE VIEW audit.v_trace_spans AS
+SELECT md5(p.run_id)                                   AS "traceID",
+       left(md5(p.run_id || '/root'), 16)              AS "spanID",
+       NULL::text                                      AS "parentSpanID",
+       p.run_id                                        AS run_id,
+       p.pipeline || ' ' || coalesce(p.ref_month::text, '') AS "operationName",
+       p.pipeline                                      AS "serviceName",
+       extract(epoch FROM p.started_at) * 1000         AS "startTime",
+       extract(epoch FROM coalesce(p.finished_at, now()) - p.started_at) * 1000 AS duration,
+       p.status                                        AS status
+FROM audit.pipeline_run p
+UNION ALL
+SELECT md5(t.run_id),
+       left(md5(t.run_id || '/' || t.task_id || '/' || t.attempt), 16),
+       left(md5(t.run_id || '/root'), 16),
+       t.run_id,
+       t.task_id || CASE WHEN t.attempt > 1 THEN ' (try ' || t.attempt || ')' ELSE '' END,
+       coalesce(t.layer, 'task'),
+       extract(epoch FROM t.started_at) * 1000,
+       extract(epoch FROM coalesce(t.finished_at, now()) - t.started_at) * 1000,
+       t.status
+FROM audit.task_run t
+UNION ALL
+SELECT md5(l.run_id),
+       left(md5(l.run_id || '/' || l.task_id || '/' || l.id), 16),
+       left(md5(l.run_id || '/' || l.task_id || '/' || coalesce((
+           SELECT max(attempt) FROM audit.task_run tr WHERE tr.run_id = l.run_id AND tr.task_id = l.task_id), 1)), 16),
+       l.run_id,
+       l.event || coalesce(' ' || (l.fields->>'entity'), '') || coalesce(' ' || (l.fields->>'file'), ''),
+       'step',
+       (extract(epoch FROM l.ts) - (l.fields->>'seconds')::numeric) * 1000,
+       (l.fields->>'seconds')::numeric * 1000,
+       l.level
+FROM audit.log_event l
+WHERE l.fields ? 'seconds' AND (l.fields->>'seconds') ~ '^[0-9.]+$' AND l.run_id IS NOT NULL AND l.task_id IS NOT NULL;
+
+GRANT SELECT ON ALL TABLES IN SCHEMA audit TO grafana_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA audit TO dbeaver_ro;

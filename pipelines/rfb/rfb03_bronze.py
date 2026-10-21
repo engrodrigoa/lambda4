@@ -59,9 +59,9 @@ def table_name(entity: str) -> str:
 def ensure_table(spark, entity: str, bucket: str) -> None:
     cols = ", ".join([f"{c} string" for c in COLUMNS[entity]] + [f"{c} {t}" for c, t in LINEAGE])
     spark.sql(f"CREATE DATABASE IF NOT EXISTS {DATABASE} COMMENT 'RFB CNPJ open data as published (all strings)' "
-              f"LOCATION 's3a://{bucket}/rfb/'")
+              f"LOCATION '{get_settings().lake_uri(bucket, 'rfb')}/'")
     spark.sql(f"""CREATE TABLE IF NOT EXISTS {table_name(entity)} ({cols}) USING DELTA
-                  PARTITIONED BY (_ref_month) LOCATION 's3a://{bucket}/rfb/{entity}'
+                  PARTITIONED BY (_ref_month) LOCATION '{get_settings().lake_uri(bucket, 'rfb', entity)}'
                   COMMENT 'RFB {entity}: one partition per reference month, raw strings + lineage'""")
 
 

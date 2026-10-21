@@ -34,6 +34,7 @@ class RunContext:
     under_airflow: bool
     host: str
     git_sha: str | None
+    airflow_task_id: str | None = None
 
     @classmethod
     def current(cls) -> RunContext:
@@ -53,6 +54,7 @@ class RunContext:
             under_airflow=bool(airflow_run),
             host=socket.gethostname(),
             git_sha=git_sha(),
+            airflow_task_id=os.environ.get("AIRFLOW_CTX_TASK_ID"),
         )
 
 

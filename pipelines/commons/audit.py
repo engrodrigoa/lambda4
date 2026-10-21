@@ -21,7 +21,7 @@ from pipelines.commons.settings import get_settings
 # internal logger: never mirrored back into audit (see logger.AuditHandler) to avoid loops
 _log = logging.getLogger("lambda.audit")
 
-JSON_PARAMS = {"params", "metrics", "context", "fields"}
+JSON_PARAMS = {"params", "metrics", "context", "fields", "detail", "op_metrics"}
 
 SQL: dict[str, str] = {
     "pipeline_run_start": """
@@ -56,11 +56,19 @@ SQL: dict[str, str] = {
         ) s
         WHERE p.run_id = %(run_id)s""",
     "task_start": """
-        INSERT INTO audit.task_run (run_id, task_id, attempt, pipeline, layer, entity, ref_month, status, started_at)
+        INSERT INTO audit.task_run (run_id, task_id, attempt, pipeline, layer, entity, ref_month, status, started_at,
+                                    airflow_task_id)
         VALUES (%(run_id)s, %(task_id)s, %(attempt)s, %(pipeline)s, %(layer)s, %(entity)s, %(ref_month)s, 'RUNNING',
-                %(started_at)s)
+                %(started_at)s, %(airflow_task_id)s)
         ON CONFLICT (run_id, task_id, attempt) DO UPDATE
             SET status = 'RUNNING', started_at = EXCLUDED.started_at, finished_at = NULL""",
+    "task_fail_if_running": """
+        UPDATE audit.task_run SET status = 'FAILED', finished_at = %(finished_at)s,
+            exit_code = COALESCE(exit_code, -1),
+            error_class = COALESCE(error_class, %(error_class)s),
+            error_message = COALESCE(error_message, %(error_message)s)
+        WHERE run_id = %(run_id)s AND airflow_task_id = %(airflow_task_id)s AND attempt = %(attempt)s
+          AND status = 'RUNNING'""",
     "task_finish": """
         UPDATE audit.task_run SET
             ref_month = COALESCE(%(ref_month)s, ref_month),
@@ -81,6 +89,18 @@ SQL: dict[str, str] = {
         INSERT INTO audit.log_event (ts, run_id, task_id, pipeline, level, logger, event, message, fields, raw_line)
         VALUES (%(ts)s, %(run_id)s, %(task_id)s, %(pipeline)s, %(level)s, %(logger)s, %(event)s, %(message)s,
                 %(fields)s, %(raw_line)s)""",
+    "health_check": """
+        INSERT INTO audit.health_check (checked_at, run_id, task_id, pipeline, component, status, latency_ms, detail)
+        VALUES (%(checked_at)s, %(run_id)s, %(task_id)s, %(pipeline)s, %(component)s, %(status)s, %(latency_ms)s,
+                %(detail)s)""",
+    "delta_table_stats": """
+        INSERT INTO audit.delta_table_stats (captured_at, run_id, task_id, pipeline, layer, table_name, ref_month,
+            operation, delta_version, num_files, size_bytes, rows_total, rows_written, rows_inserted, rows_updated,
+            rows_deleted, files_added, files_removed, op_metrics)
+        VALUES (%(captured_at)s, %(run_id)s, %(task_id)s, %(pipeline)s, %(layer)s, %(table_name)s, %(ref_month)s,
+            %(operation)s, %(delta_version)s, %(num_files)s, %(size_bytes)s, %(rows_total)s, %(rows_written)s,
+            %(rows_inserted)s, %(rows_updated)s, %(rows_deleted)s, %(files_added)s, %(files_removed)s,
+            %(op_metrics)s)""",
     "quarantine_summary": """
         INSERT INTO audit.quarantine_summary (created_at, run_id, task_id, pipeline, ref_month, entity, file_name,
                                               reason, rows, repaired, sample)

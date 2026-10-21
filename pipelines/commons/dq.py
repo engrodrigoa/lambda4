@@ -33,10 +33,31 @@ SEVERITY: dict[str, Severity] = {
     "bronze.rows_match_source": Severity.BLOCK,         # rows written + rows quarantined == records extracted
     "bronze.rows_vs_previous_month": Severity.WARN,
     "bronze.quarantine_rate": Severity.WARN,
+    # preflight (infra health before touching data)
+    "preflight.s3": Severity.BLOCK,                     # SeaweedFS S3 answers with the lake credentials
+    "preflight.spark_master": Severity.BLOCK,           # standalone master ALIVE with at least one worker
+    "preflight.metastore": Severity.BLOCK,              # Hive metastore DB reachable (table names)
+    "preflight.datalake_mounted": Severity.BLOCK,       # /mnt/datalake (SeaweedFS volumes) is a mountpoint
+    "preflight.landing_mounted": Severity.BLOCK,        # landing disk mounted
+    "preflight.free_space": Severity.WARN,              # scratch / datalake / landing above their floors
+    "preflight.observability": Severity.WARN,           # Loki, Pushgateway, audit DB (degraded, not blocking)
     # silver
+    "silver.bronze_month_present": Severity.BLOCK,      # bronze partition for the month exists (watermark DONE)
     "silver.month_order": Severity.BLOCK,               # SCD2 must apply months in order
-    "silver.natural_key_unique": Severity.BLOCK,
+    "silver.natural_key_unique": Severity.BLOCK,        # after dedup: one row per natural key
+    "silver.duplicates_removed": Severity.WARN,         # exact duplicate rows in the source (dropped, counted)
+    "silver.conflicting_duplicates": Severity.WARN,     # same key, different values (winner kept, rest quarantined)
+    "silver.invalid_dates": Severity.WARN,              # date fields that could not be parsed (beyond zero dates)
+    "silver.cnpj_dv_valid": Severity.WARN,              # CNPJ check digits that do not verify
     "silver.null_rate": Severity.WARN,
+    "silver.change_rate": Severity.WARN,                # share of keys that changed this month (anomaly signal)
+    "silver.current_rows_match_source": Severity.BLOCK, # current versions == rows of the month after dedup
+    # gold
+    "gold.rows_match_silver": Severity.BLOCK,           # fan-out / fan-in guard on joins
+    "gold.orphan_rate": Severity.WARN,                  # foreign codes without a match in the dimension
+    "gold.rows_nonzero": Severity.BLOCK,
+    # maintenance
+    "maintenance.vacuum_retention": Severity.WARN,      # never vacuum below the time-travel retention
 }
 
 
