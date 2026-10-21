@@ -80,6 +80,7 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
   every file < 1 GiB small: rewrote the fresh 96-file silver tables and 2688-file gold), gold.estabelecimento_atual
   17 min. Tuned the same day (ADR 0005), see Pendências 3.
   Datalake 47 GB used after the run (VACUUM keeps 168 h of old files).
+  **2026-10-21 (after the tuning): silver SCD2 reset** (4 `*_hist` tables dropped, files removed from s3://silver, `silver.*` watermarks of the 4 SCD2 entities deleted; bronze 2026-09 + landing kept) to reload from older months. Silver accepts months only oldest -> newest (2026-07, then 08, then 09); source confirmed to publish 07/08/09.
 - Tests: `~/.envs/env-data/bin/python -m pytest` (59 tests; `tests/spark/` = local Spark + Delta in a temp folder, never the lake; `-m "not spark"` to skip). Lint: `ruff check pipelines tests airflow infra`.
 - Known issue: the Delta SQL extension breaks `spark.sql(..., args=...)` (UNBOUND_SQL_PARAMETER). Use the DataFrame API; literal SQL only with values from code.
 - Known noise: `ERROR HiveAlterHandler: Failed to alter table` after Delta writes is harmless.
