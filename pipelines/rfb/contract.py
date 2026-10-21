@@ -41,6 +41,27 @@ COLUMNS: dict[str, tuple[str, ...]] = {
 }
 
 
+DOMAIN_ENTITIES = ("cnaes", "motivos", "municipios", "naturezas", "paises", "qualificacoes")
+ENTITY_GROUPS: dict[str, tuple[str, ...]] = {"domains": DOMAIN_ENTITIES}
+ENTITIES = ("empresas", "estabelecimentos", "socios", "simples", *DOMAIN_ENTITIES)
+
+
+def expand_entities(name: str) -> tuple[str, ...]:
+    """'estabelecimentos' -> ('estabelecimentos',); 'domains' -> the 6 small tables; 'all' -> every entity."""
+    if name == "all":
+        return ENTITIES
+    if name in ENTITY_GROUPS:
+        return ENTITY_GROUPS[name]
+    if name in COLUMNS:
+        return (name,)
+    raise KeyError(f"unknown RFB entity or group: {name} (valid: {', '.join((*ENTITIES, *ENTITY_GROUPS, 'all'))})")
+
+
+def files_of(entity: str) -> tuple[str, ...]:
+    """Contract ZIPs of one entity, in order: Estabelecimentos0..9.zip, or Cnaes.zip."""
+    return tuple(f for f in EXPECTED_FILES if entity_of(f) == entity)
+
+
 def entity_of(file_name: str) -> str:
     """'Estabelecimentos3.zip' -> 'estabelecimentos'."""
     stem = re.sub(r"\.zip$", "", file_name, flags=re.IGNORECASE)
@@ -52,3 +73,4 @@ def entity_of(file_name: str) -> str:
 
 assert len(EXPECTED_FILES) == 37, "the RFB contract has 37 files per month"
 assert len(COLUMNS["estabelecimentos"]) == 30
+assert set(ENTITIES) == set(COLUMNS)

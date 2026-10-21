@@ -22,8 +22,15 @@ SEVERITY: dict[str, Severity] = {
     "landing.contract_files_present": Severity.BLOCK,   # bronze needs the whole month (37 files)
     "landing.free_space": Severity.WARN,                # landing disk may not fit the month
     "landing.size_vs_previous_month": Severity.WARN,    # total bytes deviate from the previous month
+    # extract (zip -> chunked UTF-8 CSV on scratch)
+    "extract.source_files_present": Severity.BLOCK,     # every ZIP of the entity is in the landing zone
+    "extract.free_space": Severity.WARN,                # scratch may not fit the uncompressed entity
+    "extract.unbalanced_quote_lines": Severity.WARN,    # physical lines quarantined by the record splitter
     # bronze
+    "bronze.landing_complete": Severity.BLOCK,          # ctrl.download_ref says the month is DOWNLOADED
+    "bronze.extract_manifest_present": Severity.BLOCK,  # extract finished for this entity and month
     "bronze.rows_nonzero": Severity.BLOCK,
+    "bronze.rows_match_source": Severity.BLOCK,         # rows written + rows quarantined == records extracted
     "bronze.rows_vs_previous_month": Severity.WARN,
     "bronze.quarantine_rate": Severity.WARN,
     # silver

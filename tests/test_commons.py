@@ -107,3 +107,10 @@ def test_inmemory_ctrl_resume_and_validation():
         c.upsert_ref({"pipeline": "rfb", "ref_month": 202610, "status": "WHATEVER"})
     with pytest.raises(KeyError):
         c.upsert_ref({"pipeline": "rfb", "ref_month": 202610, "status": "PENDING", "typo_col": 1})
+
+
+def test_params_and_metrics_may_reuse_reserved_names():
+    def body(t):
+        t.metric(status="custom", rows_out=1)       # clash with task_end fields: the TaskRun values win
+
+    assert _run(body, params={"entity": "x", "layer": "y"}) == EXIT_OK

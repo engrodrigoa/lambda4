@@ -131,9 +131,10 @@ class TaskRun:
         })
         _CURRENT = self
         self._t0 = time.monotonic()
-        log_event(self.log, "task_start", f"{self.pipeline}.{self.task_id} started", layer=self.layer,
-                  entity=self.entity, attempt=self.attempt, trigger=self.ctx.trigger, git_sha=self.ctx.git_sha,
-                  under_airflow=self.ctx.under_airflow, **self.params)
+        # params first: the TaskRun's own fields win on a name clash (e.g. params={"entity": ...})
+        fields = {**self.params, "layer": self.layer, "entity": self.entity, "attempt": self.attempt,
+                  "trigger": self.ctx.trigger, "git_sha": self.ctx.git_sha, "under_airflow": self.ctx.under_airflow}
+        log_event(self.log, "task_start", f"{self.pipeline}.{self.task_id} started", **fields)
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
@@ -154,9 +155,10 @@ class TaskRun:
 
         counters = {k: v for k, v in self.counters.items() if v is not None}
         level = logging.INFO if self.status != "FAILED" else logging.ERROR
+        fields = {**self.extra_metrics, **counters, "status": self.status, "exit_code": self.exit_code,
+                  "duration_s": round(duration, 3), "warn_count": self.warn_count, "block_count": self.block_count}
         log_event(self.log, "task_end", f"{self.pipeline}.{self.task_id} {self.status} in {duration:.1f}s",
-                  level=level, status=self.status, exit_code=self.exit_code, duration_s=round(duration, 3),
-                  warn_count=self.warn_count, block_count=self.block_count, **counters, **self.extra_metrics)
+                  level=level, **fields)
 
         sink = get_sink()
         sink.write("task_finish", {

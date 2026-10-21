@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Download the extra Spark jars from Maven Central, verify sha1, install into /opt/spark/jars.
-# Spark 4.1.x + Delta 4.1.0 + S3A (hadoop-aws must match the bundled hadoop-client: 3.4.2).
+# Spark 4.1.0 (pinned, ADR 0002) + Delta 4.1.0 + S3A (hadoop-aws must match the bundled hadoop-client: 3.4.2).
 set -euo pipefail
 M=https://repo1.maven.org/maven2
 D=$(mktemp -d); trap 'rm -rf "$D"' EXIT

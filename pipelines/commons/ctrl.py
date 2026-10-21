@@ -57,6 +57,7 @@ class CtrlStore(Protocol):
     def latest_file_hashes(self, pipeline: str, ref_month: int) -> dict[str, tuple[int, str]]: ...
     def last_downloaded(self, pipeline: str) -> int | None: ...
     def set_watermark(self, row: dict[str, Any]) -> None: ...
+    def get_watermark(self, pipeline: str, layer: str, ref_month: int) -> dict[str, Any] | None: ...
     def last_applied(self, pipeline: str, layer: str) -> int | None: ...
 
 
@@ -144,6 +145,12 @@ class DeltaCtrl:
                            WHEN MATCHED THEN UPDATE SET *
                            WHEN NOT MATCHED THEN INSERT *""")
 
+    def get_watermark(self, pipeline: str, layer: str, ref_month: int) -> dict[str, Any] | None:
+        rows = (self._t("layer_watermark")
+                .where((F.col("pipeline") == pipeline) & (F.col("layer") == layer)
+                       & (F.col("ref_month") == ref_month)).collect())
+        return rows[0].asDict() if rows else None
+
     def last_applied(self, pipeline: str, layer: str) -> int | None:
         row = (self._t("layer_watermark")
                .where((F.col("pipeline") == pipeline) & (F.col("layer") == layer) & (F.col("status") == "DONE"))
@@ -197,6 +204,10 @@ class InMemoryCtrl:
             raise ValueError(f"invalid watermark status: {row.get('status')}")
         _row(LAYER_WATERMARK, row)
         self.watermarks[(row["pipeline"], row["layer"], row["ref_month"])] = dict(row)
+
+    def get_watermark(self, pipeline: str, layer: str, ref_month: int) -> dict[str, Any] | None:
+        r = self.watermarks.get((pipeline, layer, ref_month))
+        return dict(r) if r else None
 
     def last_applied(self, pipeline: str, layer: str) -> int | None:
         months = [m for (p, lay, m), r in self.watermarks.items()
