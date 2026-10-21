@@ -73,7 +73,11 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 - `pipelines/commons/`: settings (`lake_uri`, env file), refmonth, context (Airflow ctx, `airflow_task_id`), logger (JSON lines with `trace_id`/`span_id`), audit (best-effort sink + spool), metrics (Pushgateway), tracing (OTel SDK spans, no-op when off), dq (THE severity registry), task (`TaskRun`/`run_task`, exit 0/99/1, SIGTERM -> recorded failure, one span per attempt), http, landing, spark, ctrl (Delta control + `InMemoryCtrl`), csv_split, quarantine, lake (DuckDB views over Delta via the metastore), delta_stats (`audit.delta_table_stats`), scd2 (generic SCD2 MERGE, rollback, as_of, table property `lambda.scd2.last_month`), finalize_run, airflow_callbacks.
 - `pipelines/rfb/`: contract (37 files, columns, fixed CODES), source, rfb00_preflight, rfb01_download, rfb02_extract, rfb03_bronze, silver_model + rfb04_silver (SCD2), rfb05_gold (`--target dims|estabelecimento_atual|socio_atual|fato_mudanca_cadastral|agg_estabelecimentos_mensal`), rfb06_maintenance.
 - DAG `rfb_pipeline` = `airflow/dags/dag_rfb.py` (symlinked into `~/airflow/dags/lambda4`): 24 tasks, param `ref_month`, pools `rfb_spark`(1) / `rfb_extract`(1), skip on exit 99, finalize `all_done` (fails if the run failed). Created PAUSED; **the owner runs it himself** (never trigger it without being asked).
-- Real data so far: landing + extract + bronze of 2026-09 (222,197,007 rows). Silver/gold built and unit-tested on local Spark, NOT yet run on real data.
+- Real data: first full DAG run 2026-10-21 (`manual__2026-10-21T11:01:33.444773+00:00`, ref 2026-09): SUCCESS in 3 h 33 min,
+  23/23 tasks, 0 BLOCK, 3 WARN (socios 292 exact dups + 31 conflicting keys, empresas 1 conflicting key -> quarantine).
+  Slowest: estabelecimentos.silver 53 min (dedup window spills ~15 GB to disk: AQE coalesces to 32 partitions),
+  maintenance 69 min (OPTIMIZE rewrites the fresh 96-file silver tables), gold.estabelecimento_atual 17 min.
+  Datalake 47 GB used after the run (VACUUM keeps 168 h of old files).
 - Tests: `~/.envs/env-data/bin/python -m pytest` (48 tests; `tests/spark/` = local Spark + Delta in a temp folder, never the lake; `-m "not spark"` to skip). Lint: `ruff check pipelines tests airflow infra`.
 - Known issue: the Delta SQL extension breaks `spark.sql(..., args=...)` (UNBOUND_SQL_PARAMETER). Use the DataFrame API; literal SQL only with values from code.
 - Known noise: `ERROR HiveAlterHandler: Failed to alter table` after Delta writes is harmless.
@@ -92,8 +96,10 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
   `LAMBDA_OTEL_ENABLED` (default 1), `LAMBDA_OTEL_ENDPOINT`. No collector at start-up -> no-op with one warning.
 - Airflow traces on (`AIRFLOW__TRACES__OTEL_ON` + `OTEL_TRACES_EXPORTER=otlp_proto_http` +
   `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` in `~/.config/airflow.env`, versioned in `infra/airflow/observability.env`):
-  service `Airflow`, its own trace per DAG run; the DAG's `TracedBashOperator` passes `TRACEPARENT`, our spans link
-  to `worker.<task>`. Not yet seen with a real DAG run.
+  plus `OTEL_SERVICE_NAME=airflow` (without it spans arrive as `unknown_service`; set 2026-10-21, applies after an
+  Airflow restart), its own trace per DAG run (`dag_run.rfb_pipeline` -> `task_run.<t>` -> `worker.<t>`); the DAG's
+  `TracedBashOperator` passes `TRACEPARENT`, our spans link to `worker.<task>`. Verified on the first real run: 146
+  spans in one tree, every task attempt linked to Airflow's trace.
 - Grafana datasources for Loki/Alertmanager/Tempo are versioned in `infra/grafana/datasources-observability.yaml`
   (-> `/etc/grafana/provisioning/datasources/obs-plus.yaml`; Loki "Trace in Tempo" derived field, Tempo -> logs/metrics).
   Alloy stores `trace_id`/`span_id` as Loki structured metadata. Tempo port 4317 is NOT used (Phoenix owns it).
@@ -143,7 +149,6 @@ Todos os serviços escutam em localhost; acesso remoto por **túnel SSH** (`lab 
 ## Pendências conhecidas
 1. Considerar disco maior/com fonte própria para o datalake (320 GB, bus-powered).
 2. Implementar `lab start|stop`; silenciar alertas "alvo fora do ar" dos serviços sob demanda.
-3. Primeira execução real da DAG completa (o dono executa e observa): medir silver/gold com 73 M linhas, ajustar shuffle/memória se houver spill.
-4. Ver os primeiros traces do Airflow (serviço `Airflow`) e os links com os nossos spans na primeira execução real da DAG.
-5. CI (rodar `pytest` e `ruff` a cada push) depois do primeiro pipeline completo validado.
-6. Backfill de meses anteriores: silver só aceita meses em ordem a partir do primeiro carregado (reconstruir para começar mais cedo).
+3. Ajustes da 1ª execução real: spill do dedup do silver (partições AQE), barra de progresso do Spark nos logs (`spark.ui.showConsoleProgress=false`), silver gravando 96 arquivos (OPTIMIZE caro), variáveis de métricas OTel do Airflow obsoletas (migrar para `OTEL_EXPORTER_OTLP_METRICS_*`) + reiniciar o Airflow para aplicar `OTEL_SERVICE_NAME`.
+4. CI (rodar `pytest` e `ruff` a cada push) depois do primeiro pipeline completo validado.
+5. Backfill de meses anteriores: silver só aceita meses em ordem a partir do primeiro carregado (reconstruir para começar mais cedo).

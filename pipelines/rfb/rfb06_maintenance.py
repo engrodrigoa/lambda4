@@ -71,8 +71,8 @@ def main(argv: list[str] | None = None) -> int:
                               f"{table}: files {before['numFiles']} -> {stats.get('num_files')}, "
                               f"{(before['sizeInBytes'] or 0) / 1024 ** 2:.0f} -> "
                               f"{(stats.get('size_bytes') or 0) / 1024 ** 2:.0f} MiB in {secs}s",
-                              table=table, layer=layer, seconds=secs, files_added=opt[0], files_removed=opt[1],
-                              **summary[table])
+                              table=table, layer=layer, files_added=opt[0], files_removed=opt[1],
+                              **summary[table])          # summary carries `seconds` (a step span in the trace)
                     task.add(files_total=1, files_ok=1)
         task.metric(tables=summary, retention_hours=retention)
 
