@@ -13,6 +13,17 @@ from typing import Any
 from pipelines.commons.settings import get_settings
 from pipelines.commons.task import current_task
 
+# ----------------------------------------------------------------------------------------- Delta file sizing
+# One target for writers and for OPTIMIZE (ADR 0005): 256 MiB is what Databricks auto-tunes for tables < 2.56 TB.
+DELTA_TARGET_FILE_MB = 256
+# Optimized writes: one extra shuffle before the write so each task writes one bin -> right-sized files instead of one
+# file per shuffle partition (2026-09: 96 files of ~55 MB per silver table, rewritten by OPTIMIZE right away). binSize
+# counts shuffle bytes (lz4 rows), ~3x the zstd parquet on disk (15.6 GB shuffled -> 5.3 GB of estabelecimento_hist).
+DELTA_OPTIMIZED_WRITES = {
+    "spark.databricks.delta.optimizeWrite.enabled": "true",
+    "spark.databricks.delta.optimizeWrite.binSize": str(3 * DELTA_TARGET_FILE_MB),     # MiB
+}
+
 
 def _prepare_env() -> None:
     s = get_settings()
@@ -30,7 +41,8 @@ def build_spark(app_name: str, master: str | None = None, conf: dict[str, Any] |
     builder = SparkSession.builder.appName(full_name[:200])
     if master:
         builder = builder.master(master)
-    defaults = {"spark.sql.session.timeZone": "UTC"}
+    # console progress bars ([Stage 3:>  (12 + 6) / 96]) are \r-redrawn lines: noise in Airflow task logs and Loki
+    defaults = {"spark.sql.session.timeZone": "UTC", "spark.ui.showConsoleProgress": "false"}
     for k, v in {**defaults, **(conf or {})}.items():
         builder = builder.config(k, v)
     spark = builder.enableHiveSupport().getOrCreate()

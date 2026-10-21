@@ -89,3 +89,17 @@ def test_dedup_estabelecimentos_with_array_and_dates(spark, lake):
     assert ranked.count() == 2 and losers.count() == 1
     w = winners.collect()
     assert len(w) == 1 and w[0]["cnae_fiscal_secundaria"] == ["9999999"]   # newest data_situacao wins
+
+
+def test_dedup_single_window_exact_dups_with_nulls_and_type1_tiebreak(spark, lake):
+    df = bronze(spark, "estabelecimentos", [
+        estab(telefone_1="22222222"), estab(telefone_1="22222222"), estab(telefone_1="22222222"),  # x3, many NULLs
+        estab(telefone_1="11111111"),                       # differs only in a type-1 column: still a conflict
+        estab(cnpj_ordem="0002", cnpj_dv="62"), estab(cnpj_ordem="0002", cnpj_dv="62"),            # x2, no conflict
+    ])
+    winners, losers, ranked = dedup(transform("estabelecimentos", df), MODELS["estabelecimentos"])
+    assert ranked.count() == 3                               # 3 distinct rows (2 exact duplicates of the first dropped)
+    assert {r["cnpj"] for r in winners.collect()} == {"11222333000181", "11222333000262"}
+    w = {r["cnpj"]: r for r in winners.collect()}
+    assert w["11222333000181"]["telefone_1"] == "11111111"   # total order: ties broken by every column, ascending
+    assert [r["telefone_1"] for r in losers.collect()] == ["22222222"]

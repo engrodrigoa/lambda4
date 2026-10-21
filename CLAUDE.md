@@ -69,16 +69,18 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 - Learning report for the owner: `docs/learning/`.
 
 ## Pipeline code (state 2026-10-21)
-- Reference: `docs/architecture.md` (flow, DAG, lineage per step, data model, observability map, runbook). ADRs 0001-0004. Study reports `docs/learning/01..04` (pt-BR).
+- Reference: `docs/architecture.md` (flow, DAG, lineage per step, data model, observability map, runbook). ADRs 0001-0005. Study reports `docs/learning/01..06` (pt-BR).
 - `pipelines/commons/`: settings (`lake_uri`, env file), refmonth, context (Airflow ctx, `airflow_task_id`), logger (JSON lines with `trace_id`/`span_id`), audit (best-effort sink + spool), metrics (Pushgateway), tracing (OTel SDK spans, no-op when off), dq (THE severity registry), task (`TaskRun`/`run_task`, exit 0/99/1, SIGTERM -> recorded failure, one span per attempt), http, landing, spark, ctrl (Delta control + `InMemoryCtrl`), csv_split, quarantine, lake (DuckDB views over Delta via the metastore), delta_stats (`audit.delta_table_stats`), scd2 (generic SCD2 MERGE, rollback, as_of, table property `lambda.scd2.last_month`), finalize_run, airflow_callbacks.
 - `pipelines/rfb/`: contract (37 files, columns, fixed CODES), source, rfb00_preflight, rfb01_download, rfb02_extract, rfb03_bronze, silver_model + rfb04_silver (SCD2), rfb05_gold (`--target dims|estabelecimento_atual|socio_atual|fato_mudanca_cadastral|agg_estabelecimentos_mensal`), rfb06_maintenance.
 - DAG `rfb_pipeline` = `airflow/dags/dag_rfb.py` (symlinked into `~/airflow/dags/lambda4`): 24 tasks, param `ref_month`, pools `rfb_spark`(1) / `rfb_extract`(1), skip on exit 99, finalize `all_done` (fails if the run failed). Created PAUSED; **the owner runs it himself** (never trigger it without being asked).
 - Real data: first full DAG run 2026-10-21 (`manual__2026-10-21T11:01:33.444773+00:00`, ref 2026-09): SUCCESS in 3 h 33 min,
   23/23 tasks, 0 BLOCK, 3 WARN (socios 292 exact dups + 31 conflicting keys, empresas 1 conflicting key -> quarantine).
-  Slowest: estabelecimentos.silver 53 min (dedup window spills ~15 GB to disk: AQE coalesces to 32 partitions),
-  maintenance 69 min (OPTIMIZE rewrites the fresh 96-file silver tables), gold.estabelecimento_atual 17 min.
+  Slowest: estabelecimentos.silver 53 min (root cause: regex-heavy typing ~73 us/row CPU + a useless `dropDuplicates`
+  hash aggregate in the same stage; the window spill was a symptom), maintenance 69 min (Delta OPTIMIZE defaults call
+  every file < 1 GiB small: rewrote the fresh 96-file silver tables and 2688-file gold), gold.estabelecimento_atual
+  17 min. Tuned the same day (ADR 0005), see Pendências 3.
   Datalake 47 GB used after the run (VACUUM keeps 168 h of old files).
-- Tests: `~/.envs/env-data/bin/python -m pytest` (48 tests; `tests/spark/` = local Spark + Delta in a temp folder, never the lake; `-m "not spark"` to skip). Lint: `ruff check pipelines tests airflow infra`.
+- Tests: `~/.envs/env-data/bin/python -m pytest` (59 tests; `tests/spark/` = local Spark + Delta in a temp folder, never the lake; `-m "not spark"` to skip). Lint: `ruff check pipelines tests airflow infra`.
 - Known issue: the Delta SQL extension breaks `spark.sql(..., args=...)` (UNBOUND_SQL_PARAMETER). Use the DataFrame API; literal SQL only with values from code.
 - Known noise: `ERROR HiveAlterHandler: Failed to alter table` after Delta writes is harmless.
 - **Spark is pinned to 4.1.0** (ADR 0002). Never upgrade Spark or Delta alone.
@@ -86,7 +88,7 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 ## Observability (state 2026-10-21, ADR 0004 phases 1 and 2)
 - Postgres `audit`: pipeline_run, task_run (+airflow_task_id), dq_event, log_event (monthly partitions, 90 d), quarantine_summary, health_check, delta_table_stats, views v_last_runs / v_task_latest / v_dq_open / v_logs_recent / v_trace_spans. DDL: `infra/postgres/audit_schema.sql` (idempotent).
 - Loki: `job=lambda-pipelines` (pipeline JSON events) and `job=airflow-tasks` (raw Airflow task logs, labels dag_id/task_id/attempt/level). Airflow logs live in `/var/log/lambda/airflow`.
-- Prometheus: `job=lambda_pipeline` (Pushgateway batch metrics), `airflow_*` (Airflow OpenTelemetry -> Alloy OTLP :4318 -> remote write; Prometheus runs with `--web.enable-remote-write-receiver`). Rules: `infra/prometheus/rules/lambda_pipeline.yml` (reload: `sudo systemctl reload prometheus`).
+- Prometheus: `job=lambda_pipeline` (Pushgateway batch metrics), `airflow_*` (Airflow OpenTelemetry, standard `OTEL_EXPORTER_OTLP_METRICS_*` env since 2026-10-21 -> Alloy OTLP :4318 -> remote write; Prometheus runs with `--web.enable-remote-write-receiver`). Rules: `infra/prometheus/rules/lambda_pipeline.yml` (reload: `sudo systemctl reload prometheus`).
 - Grafana folder "Lambda4 · RFB": dashboards as code `infra/grafana/build_dashboards.py` -> `infra/grafana/install.sh`; `infra/grafana/validate_dashboards.py` runs every query. Do not edit dashboards in the UI (not persisted).
 - Traces (phase 2, installed 2026-10-21): `pipelines/commons/tracing.py` (OTel SDK 1.44 in env-data) -> OTLP/HTTP
   Alloy `127.0.0.1:4318` -> Tempo 3.1 (`127.0.0.1:4417` gRPC in, `:3200` API; on demand; `/var/lib/tempo`, 14 d;
@@ -96,8 +98,8 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
   `LAMBDA_OTEL_ENABLED` (default 1), `LAMBDA_OTEL_ENDPOINT`. No collector at start-up -> no-op with one warning.
 - Airflow traces on (`AIRFLOW__TRACES__OTEL_ON` + `OTEL_TRACES_EXPORTER=otlp_proto_http` +
   `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` in `~/.config/airflow.env`, versioned in `infra/airflow/observability.env`):
-  plus `OTEL_SERVICE_NAME=airflow` (without it spans arrive as `unknown_service`; set 2026-10-21, applies after an
-  Airflow restart), its own trace per DAG run (`dag_run.rfb_pipeline` -> `task_run.<t>` -> `worker.<t>`); the DAG's
+  plus `OTEL_SERVICE_NAME=airflow` (without it spans arrive as `unknown_service`; applied by the Airflow restart of
+  2026-10-21, also names the metrics' `job="airflow"`), its own trace per DAG run (`dag_run.rfb_pipeline` -> `task_run.<t>` -> `worker.<t>`); the DAG's
   `TracedBashOperator` passes `TRACEPARENT`, our spans link to `worker.<task>`. Verified on the first real run: 146
   spans in one tree, every task attempt linked to Airflow's trace.
 - Grafana datasources for Loki/Alertmanager/Tempo are versioned in `infra/grafana/datasources-observability.yaml`
@@ -149,6 +151,6 @@ Todos os serviços escutam em localhost; acesso remoto por **túnel SSH** (`lab 
 ## Pendências conhecidas
 1. Considerar disco maior/com fonte própria para o datalake (320 GB, bus-powered).
 2. Implementar `lab start|stop`; silenciar alertas "alvo fora do ar" dos serviços sob demanda.
-3. Ajustes da 1ª execução real: spill do dedup do silver (partições AQE), barra de progresso do Spark nos logs (`spark.ui.showConsoleProgress=false`), silver gravando 96 arquivos (OPTIMIZE caro), variáveis de métricas OTel do Airflow obsoletas (migrar para `OTEL_EXPORTER_OTLP_METRICS_*`) + reiniciar o Airflow para aplicar `OTEL_SERVICE_NAME`.
+3. ~~Ajustes da 1ª execução real~~ — **feito em 2026-10-21** (ADR 0005, relatório `docs/learning/06`), a confirmar na próxima execução: (a) silver: tipagem sem regex por passo (73 → 34 µs/linha, saída idêntica) + dedup numa única window + 192 partições de shuffle; medido local: trecho do dedup 338 → 182 s (×5,56 ≈ 32 → ~17 min no real) → `estabelecimentos.silver` esperado 53 → ~38 min; (b) optimized writes no silver/gold (~256 MiB por arquivo; local: 5 × 185 MB em vez de 35 × 27 MB, sem custo extra) + `rfb06 --optimize auto` (só tabelas com ≥ 8 arquivos e média < 64 MiB; min/maxFileSize 64/256 MiB) → `maintenance` esperado 69 → ~10–15 min; (c) `spark.ui.showConsoleProgress=false` padrão em `build_spark`; (d) métricas do Airflow via `OTEL_EXPORTER_OTLP_METRICS_*`/`OTEL_METRICS_EXPORTER` (nomes `airflow_*` e `job="airflow"` iguais, dashboards validados), Airflow reiniciado → `service.name=airflow` conferido no Tempo (via bootstrap de tracing do Airflow; a árvore da DAG aparece na próxima execução).
 4. CI (rodar `pytest` e `ruff` a cada push) depois do primeiro pipeline completo validado.
 5. Backfill de meses anteriores: silver só aceita meses em ordem a partir do primeiro carregado (reconstruir para começar mais cedo).

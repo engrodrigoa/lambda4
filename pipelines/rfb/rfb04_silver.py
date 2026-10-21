@@ -31,7 +31,7 @@ from pipelines.commons.logger import log_event
 from pipelines.commons.quarantine import Quarantine
 from pipelines.commons.refmonth import RefMonth
 from pipelines.commons.settings import get_settings
-from pipelines.commons.spark import spark_session
+from pipelines.commons.spark import DELTA_OPTIMIZED_WRITES, spark_session
 from pipelines.commons.task import TaskRun, run_task
 from pipelines.rfb.contract import expand_entities
 from pipelines.rfb.silver_model import (
@@ -51,9 +51,12 @@ INVALID_DATE_RATE_MAX = 0.001
 DV_INVALID_RATE_MAX = 0.001
 SPARK_CONF = {
     "spark.sql.parquet.compression.codec": "zstd",
-    "spark.sql.shuffle.partitions": "96",         # AQE coalesces small partitions at runtime
+    # dedup window: 96 partitions of ~160 MB spilled in the sort; 192 (~80 MB) removes most of it (ADR 0005, measured
+    # locally: 240 -> 182 s for 13.2 M rows); AQE still coalesces the small entities below 64 MB per partition
+    "spark.sql.shuffle.partitions": "192",
     "spark.sql.adaptive.enabled": "true",
     "spark.sql.adaptive.skewJoin.enabled": "true",
+    **DELTA_OPTIMIZED_WRITES,                     # ~256 MiB files instead of 96 small ones (no OPTIMIZE needed)
 }
 
 

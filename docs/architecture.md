@@ -76,7 +76,7 @@ flowchart LR
 | `gold.socio_atual` | `rfb05_gold.py` | socio/empresa hist, dims | `rfb_gold.socio_atual` | watermark, stats, dq |
 | `gold.fato_mudanca_cadastral` | `rfb05_gold.py` | all `*_hist` | `rfb_gold.fato_mudanca_cadastral` (by `ref_month`) | watermark, stats |
 | `gold.agg_estabelecimentos_mensal` | `rfb05_gold.py` | estabelecimento/empresa/simples hist | `rfb_gold.agg_estabelecimentos_mensal` (by `_ref_month`) | watermark, stats, dq |
-| `maintenance` | `pipelines/rfb/rfb06_maintenance.py` | every Delta table | OPTIMIZE / VACUUM | `audit.delta_table_stats` |
+| `maintenance` | `pipelines/rfb/rfb06_maintenance.py` | every Delta table | OPTIMIZE (only tables with ≥ 8 files averaging < 64 MiB, ADR 0005) / VACUUM | `audit.delta_table_stats` |
 | `finalize` | `pipelines/commons/finalize_run.py` | `audit.task_run` | — | `audit.pipeline_run`, run metrics |
 
 Every row of every audit table carries `run_id` (= Airflow `run_id`), every Delta write carries `_run_id`, and
@@ -96,6 +96,12 @@ Every row of every audit table carries `run_id` (= Airflow `run_id`), every Delt
 SCD2 columns: `_key, row_hash (xxhash64), t1_hash, valid_from, valid_to (YYYYMM, NULL = open), is_current,
 change_type (NEW|CHANGED), closed_reason (CHANGED|ABSENT), _run_id, _updated_at`; table property
 `lambda.scd2.last_month`. Engine: `pipelines/commons/scd2.py` (one MERGE per month).
+Dedup (`silver_model.dedup`): one window per natural key ordered by `dedup_order` then every other column; a row
+equal to the previous one is an exact duplicate, the first row wins, other distinct rows are conflicts (quarantine).
+
+File sizing (ADR 0005): silver and gold write with Delta optimized writes (`DELTA_OPTIMIZED_WRITES`, ~256 MiB files,
+`DELTA_TARGET_FILE_MB` in `pipelines/commons/spark.py`); bronze keeps one ~100 MB file per CSV split. Maintenance only
+compacts tables with many small files, into files of up to the same target.
 
 ### Gold (`rfb_gold`) — Kimball
 * Dimensions: `dim_cnae`, `dim_municipio`, `dim_natureza_juridica`, `dim_qualificacao_socio`, `dim_pais`,
@@ -117,9 +123,9 @@ change_type (NEW|CHANGED), closed_reason (CHANGED|ABSENT), _run_id, _updated_at`
 | Delta table state | `commons/delta_stats.py` | SQL | `audit.delta_table_stats` | *Pipeline health* (volume, files) |
 | Rejected rows | bronze / silver | Delta + SQL | `audit.quarantine` + `audit.quarantine_summary` | *Pipeline health*, notebooks |
 | Batch metrics | `commons/metrics.py`, `finalize_run` | Pushgateway | Prometheus (`job=lambda_pipeline`) | dashboards, alert rules |
-| Airflow metrics | Airflow (OpenTelemetry) | OTLP/HTTP → Alloy → remote write | Prometheus (`airflow_*`) | *Airflow* dashboard, alerts |
+| Airflow metrics | Airflow (OpenTelemetry, `OTEL_EXPORTER_OTLP_METRICS_*` env) | OTLP/HTTP → Alloy → remote write | Prometheus (`airflow_*`, `job="airflow"`) | *Airflow* dashboard, alerts |
 | Run trace (OTel) | `commons/tracing.py` via `TaskRun`, `log_event`, `finalize_run` | OTLP/HTTP → Alloy :4318 → OTLP/gRPC :4417 | Tempo (`/var/lib/tempo`, 14 d) | *Pipeline health* → Trace (Tempo), Explore |
-| Airflow trace | Airflow 3 (`AIRFLOW__TRACES__OTEL_ON`) | OTLP/HTTP → Alloy → Tempo | Tempo (service `Airflow`) | Explore; linked from our task spans |
+| Airflow trace | Airflow 3 (`AIRFLOW__TRACES__OTEL_ON`) | OTLP/HTTP → Alloy → Tempo | Tempo (service `airflow`) | Explore; linked from our task spans |
 | Span metrics (RED) | Tempo metrics-generator | remote write | Prometheus (`traces_spanmetrics_*`, `traces_service_graph_*`) | Explore, Tempo → metrics links |
 | Run trace (SQL fallback) | audit tables | view `audit.v_trace_spans` | Postgres | *Pipeline health* → Traces panel (audit SQL) |
 | Spark execution | Spark UI / event log | — | `/mnt/datalake/spark-events` | Spark UI :4040, History :18080 |

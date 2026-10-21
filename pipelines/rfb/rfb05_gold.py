@@ -30,7 +30,7 @@ from pipelines.commons.logger import log_event
 from pipelines.commons.refmonth import RefMonth
 from pipelines.commons.scd2 import as_of
 from pipelines.commons.settings import get_settings
-from pipelines.commons.spark import spark_session
+from pipelines.commons.spark import DELTA_OPTIMIZED_WRITES, spark_session
 from pipelines.commons.task import TaskRun, TaskSkipped, run_task
 from pipelines.rfb.contract import CODES
 from pipelines.rfb.silver_model import DOMAIN_TABLES, MODELS, SILVER_DB
@@ -43,6 +43,7 @@ SPARK_CONF = {
     "spark.sql.parquet.compression.codec": "zstd",
     "spark.sql.shuffle.partitions": "96",
     "spark.sql.adaptive.enabled": "true",
+    **DELTA_OPTIMIZED_WRITES,     # estabelecimento_atual: 2688 files (96 tasks x 28 uf) -> ~1 per uf bin
 }
 
 

@@ -19,16 +19,21 @@ from pipelines.commons.settings import get_settings
 
 SILVER_DB = "rfb_silver"
 ZERO_DATES = ("", "0", "00000000")
+# control chars removed from text: C0 except TAB, LF, CR (LF/CR become spaces) and SUB (\x1a, becomes '?')
+_CONTROL_CHARS = "".join(chr(c) for c in (*range(0x00, 0x09), 0x0B, 0x0C, *range(0x0E, 0x20)) if c != 0x1A)
 
 
 # ----------------------------------------------------------------------------------------------- column helpers
 def clean_text(c):
+    """Performance-critical (10 text columns x ~70 M rows): `translate` maps/deletes single chars without a regex,
+    and the one regex (collapse whitespace runs) only runs on values that can contain a run. Four regexes per value
+    doubled the CPU of the whole typing (estabelecimentos: 73 -> 34 us/row, identical output; ADR 0005)."""
     from pyspark.sql import functions as F
 
-    v = F.regexp_replace(F.col(c) if isinstance(c, str) else c, "\u001a", "?")
-    v = F.regexp_replace(v, "[\u0000-\u0008\u000b\u000c\u000e-\u001f]", "")
-    v = F.regexp_replace(v, "[\r\n]+", " ")
-    v = F.trim(F.regexp_replace(v, r"\s{2,}", " "))
+    # SUB -> '?', CR/LF -> ' ', other control chars deleted (translate drops chars beyond the replacement string)
+    v = F.translate(F.col(c) if isinstance(c, str) else c, "\u001a\r\n" + _CONTROL_CHARS, "?  ")
+    # a run of 2+ whitespace needs either two spaces or a TAB (the only whitespace left): skip the regex otherwise
+    v = F.trim(F.when(v.contains("  ") | v.contains("\t"), F.regexp_replace(v, r"\s{2,}", " ")).otherwise(v))
     return F.when(v == "", None).otherwise(v)
 
 
@@ -38,7 +43,8 @@ def code(c, width: int | None = None):
 
     v = F.trim(F.col(c))
     if width:
-        v = F.when(v.rlike(r"^[0-9]+$"), F.lpad(v, width, "0")).otherwise(v)
+        # the regex only runs when the length is off (almost never): a value already `width` long is kept as is
+        v = F.when((F.length(v) != width) & v.rlike(r"^[0-9]+$"), F.lpad(v, width, "0")).otherwise(v)
     return F.when((v == "") | v.isNull(), None).otherwise(v)
 
 
@@ -230,14 +236,24 @@ def transform_domain(bronze_df):
 
 def dedup(df, model: EntityModel):
     """Exact duplicates removed; among rows with the same key and different values, the first of `dedup_order`
-    wins and the others are returned as `losers` (to quarantine). Returns (winners, losers, stats-row DataFrame)."""
+    wins and the others are returned as `losers` (to quarantine). Returns (winners, losers, ranked), where `ranked`
+    holds the distinct rows with `_rn` (1 = winner).
+
+    ONE shuffle + sort by key: within a key, rows are ordered by `dedup_order` and then by every other column, so the
+    order is total (deterministic winner, type-1 columns included) and identical rows are adjacent: a row equal to
+    the previous one is an exact duplicate. A `dropDuplicates()` first adds a hash aggregate over all columns plus a
+    second shuffle that removes almost nothing (2026-09: 0 of 73.4 M estabelecimentos, 292 of 28.3 M socios)."""
     from pyspark.sql import Window
     from pyspark.sql import functions as F
 
-    distinct = df.dropDuplicates()
-    order = [_sort_col(o) for o in model.dedup_order] + [F.col(c).asc_nulls_last() for c in model.tracked_cols]
+    sort_cols = [o.split()[0] for o in model.dedup_order]
+    order = [_sort_col(o) for o in model.dedup_order] + [
+        F.col(c).asc_nulls_last() for c in df.columns if c not in model.key_cols and c not in sort_cols]
     w = Window.partitionBy(*model.key_cols).orderBy(*order)
-    ranked = distinct.withColumn("_rn", F.row_number().over(w))
+    row = F.struct(*df.columns)
+    flagged = df.select("*", F.row_number().over(w).alias("_rn"),
+                        F.lag(row).over(w).eqNullSafe(row).alias("_dup"))
+    ranked = flagged.where(~F.col("_dup")).drop("_dup")
     return ranked.where("_rn = 1").drop("_rn"), ranked.where("_rn > 1").drop("_rn"), ranked
 
 
