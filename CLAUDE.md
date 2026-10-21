@@ -82,6 +82,7 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 - Postgres for DBeaver: role `dbeaver_ro` (read-only: `audit`, `analytics`, `analytics_elementary` in db `lambda`); the owner sets its password with `sudo -u postgres psql -c "\password dbeaver_ro"`. Never paste passwords in chat or git. `lambda` is superuser (peer auth on the server).
 - DBeaver: use its SSH tab (host `lambdaserver`, user `lambda`) -> Postgres `127.0.0.1:5432`, db `lambda`.
 - One tunnel for the UIs: `ssh -N -L 8080:127.0.0.1:8080 -L 3000:127.0.0.1:3000 -L 8088:127.0.0.1:8088 -L 4040:127.0.0.1:4040 -L 18080:127.0.0.1:18080 -L 5433:127.0.0.1:5432 lambda@lambdaserver`.
+- Reading Delta: `pipelines/commons/lake.py` -> `duckdb_lake()` gives DuckDB views with the metastore names (`rfb_bronze.*`, `ctrl.*`, `audit.quarantine`) over `delta_scan`; Spark (`build_spark(..., master="local[4]")`) for history/time travel/CDF. Notebook: `notebooks/rfb_bronze_explore.ipynb`, kernel **Python (lambda-data)**. Commit notebooks WITHOUT outputs (they contain cadastral data).
 - Bronze lives in SeaweedFS S3 `s3://bronze/rfb/<entity>/` (Delta: `_delta_log/` + `_ref_month=YYYYMM/*.zstd.parquet`), physically under `/mnt/datalake/seaweedfs`.
 
 ## Stack (systemd nativo, sem Docker) — comando de saúde: `lab`
