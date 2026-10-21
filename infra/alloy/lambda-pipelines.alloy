@@ -11,11 +11,15 @@ loki.source.file "lambda_pipelines" {
 
 loki.process "lambda_pipelines" {
   stage.json {
-    expressions = { level = "level", pipeline = "pipeline", task = "task_id", ts = "ts" }
+    expressions = { level = "level", pipeline = "pipeline", task = "task_id", ts = "ts", trace_id = "trace_id", span_id = "span_id" }
   }
   // low-cardinality labels only; run_id/ref_month stay in the JSON body (query with | json)
   stage.labels {
     values = { level = "", pipeline = "", task = "" }
+  }
+  // trace ids as structured metadata (indexed per line, not a label): Tempo -> "logs for this span" (2026-10-21)
+  stage.structured_metadata {
+    values = { trace_id = "", span_id = "" }
   }
   stage.timestamp {
     source = "ts"

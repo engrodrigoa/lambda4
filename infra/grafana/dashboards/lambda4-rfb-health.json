@@ -34,6 +34,22 @@
         "includeAll": false,
         "multi": false,
         "current": {}
+      },
+      {
+        "name": "trace_id",
+        "label": "Trace id",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "pg-lambda"
+        },
+        "refresh": 1,
+        "hide": 2,
+        "query": "SELECT md5('$run_id')",
+        "definition": "SELECT md5('$run_id')",
+        "includeAll": false,
+        "multi": false,
+        "current": {}
       }
     ]
   },
@@ -627,8 +643,73 @@
     },
     {
       "type": "traces",
-      "title": "Trace of the run",
-      "description": "Root span = DAG run; children = task attempts; grandchildren = timed steps logged by the scripts (fields.seconds). Built from audit.v_trace_spans.",
+      "title": "Trace of the run (Tempo)",
+      "description": "OpenTelemetry spans in Tempo (trace id = md5(run_id)): root = the run (closed by finalize), children = task attempts (TaskRun), grandchildren = timed steps (log events with seconds / latency_ms). Span details: attributes, dq_check events, exceptions, a link to Airflow's worker span, and 'Logs for this span' (Loki by trace_id). Needs tempo + alloy running.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "$trace_id",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "id": 10,
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      }
+    },
+    {
+      "type": "table",
+      "title": "Recent pipeline traces (Tempo)",
+      "description": "TraceQL search: the last traces of the RFB pipeline (manual runs included); click a trace id to open it.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{resource.service.name=\"lambda-rfb\" && span.task_id != nil}",
+          "limit": 30,
+          "tableType": "traces"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "id": 11,
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      }
+    },
+    {
+      "type": "traces",
+      "title": "Trace of the run (audit SQL, works without Tempo)",
+      "description": "Same ids as the Tempo trace, rebuilt from the audit tables (audit.v_trace_spans): the fallback when Tempo is stopped or the run predates tracing.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "pg-lambda"
@@ -646,12 +727,12 @@
           "editorMode": "code"
         }
       ],
-      "id": 10,
+      "id": 12,
       "gridPos": {
-        "h": 12,
-        "w": 24,
-        "x": 0,
-        "y": 6
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 20
       }
     },
     {
@@ -698,12 +779,12 @@
         "stacking": "none",
         "xField": "task"
       },
-      "id": 11,
+      "id": 13,
       "gridPos": {
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 18
+        "y": 29
       }
     },
     {
@@ -871,24 +952,24 @@
           "show": false
         }
       },
-      "id": 12,
+      "id": 14,
       "gridPos": {
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 18
+        "y": 29
       }
     },
     {
       "type": "row",
       "title": "Performance across runs",
-      "id": 13,
+      "id": 15,
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 28
+        "y": 39
       },
       "panels": []
     },
@@ -948,12 +1029,12 @@
           "sort": "desc"
         }
       },
-      "id": 14,
+      "id": 16,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 29
+        "y": 40
       }
     },
     {
@@ -1012,12 +1093,12 @@
           "sort": "desc"
         }
       },
-      "id": 15,
+      "id": 17,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 29
+        "y": 40
       }
     },
     {
@@ -1076,12 +1157,12 @@
           "sort": "desc"
         }
       },
-      "id": 16,
+      "id": 18,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 37
+        "y": 48
       }
     },
     {
@@ -1139,24 +1220,24 @@
           "sort": "desc"
         }
       },
-      "id": 17,
+      "id": 19,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 37
+        "y": 48
       }
     },
     {
       "type": "row",
       "title": "Delta tables — volume and file health",
-      "id": 18,
+      "id": 20,
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 45
+        "y": 56
       },
       "panels": []
     },
@@ -1269,12 +1350,12 @@
           "show": false
         }
       },
-      "id": 19,
+      "id": 21,
       "gridPos": {
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 46
+        "y": 57
       }
     },
     {
@@ -1321,12 +1402,12 @@
         "stacking": "none",
         "xField": "table_name"
       },
-      "id": 20,
+      "id": 22,
       "gridPos": {
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 55
+        "y": 66
       }
     },
     {
@@ -1373,12 +1454,12 @@
         "stacking": "none",
         "xField": "table_name"
       },
-      "id": 21,
+      "id": 23,
       "gridPos": {
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 55
+        "y": 66
       }
     },
     {
@@ -1437,12 +1518,12 @@
           "sort": "desc"
         }
       },
-      "id": 22,
+      "id": 24,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 65
+        "y": 76
       }
     },
     {
@@ -1501,24 +1582,24 @@
           "sort": "desc"
         }
       },
-      "id": 23,
+      "id": 25,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 65
+        "y": 76
       }
     },
     {
       "type": "row",
       "title": "Data quality and reconciliation",
-      "id": 24,
+      "id": 26,
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 73
+        "y": 84
       },
       "panels": []
     },
@@ -1755,12 +1836,12 @@
           "show": false
         }
       },
-      "id": 25,
+      "id": 27,
       "gridPos": {
         "h": 10,
         "w": 14,
         "x": 0,
-        "y": 74
+        "y": 85
       }
     },
     {
@@ -1799,12 +1880,12 @@
           "show": false
         }
       },
-      "id": 26,
+      "id": 28,
       "gridPos": {
         "h": 10,
         "w": 10,
         "x": 14,
-        "y": 74
+        "y": 85
       }
     },
     {
@@ -1863,12 +1944,12 @@
           "sort": "desc"
         }
       },
-      "id": 27,
+      "id": 29,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 84
+        "y": 95
       }
     },
     {
@@ -1920,24 +2001,24 @@
           "show": false
         }
       },
-      "id": 28,
+      "id": 30,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 84
+        "y": 95
       }
     },
     {
       "type": "row",
       "title": "Platform health at run time",
-      "id": 29,
+      "id": 31,
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 92
+        "y": 103
       },
       "panels": []
     },
@@ -2082,12 +2163,12 @@
           "show": false
         }
       },
-      "id": 30,
+      "id": 32,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 93
+        "y": 104
       }
     },
     {
@@ -2146,12 +2227,12 @@
           "sort": "desc"
         }
       },
-      "id": 31,
+      "id": 33,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 93
+        "y": 104
       }
     },
     {
@@ -2209,12 +2290,12 @@
           "sort": "desc"
         }
       },
-      "id": 32,
+      "id": 34,
       "gridPos": {
         "h": 7,
         "w": 6,
         "x": 0,
-        "y": 101
+        "y": 112
       }
     },
     {
@@ -2272,12 +2353,12 @@
           "sort": "desc"
         }
       },
-      "id": 33,
+      "id": 35,
       "gridPos": {
         "h": 7,
         "w": 6,
         "x": 6,
-        "y": 101
+        "y": 112
       }
     },
     {
@@ -2345,12 +2426,12 @@
           "sort": "desc"
         }
       },
-      "id": 34,
+      "id": 36,
       "gridPos": {
         "h": 7,
         "w": 6,
         "x": 12,
-        "y": 101
+        "y": 112
       }
     },
     {
@@ -2418,12 +2499,12 @@
           "sort": "desc"
         }
       },
-      "id": 35,
+      "id": 37,
       "gridPos": {
         "h": 7,
         "w": 6,
         "x": 18,
-        "y": 101
+        "y": 112
       }
     },
     {
@@ -2481,12 +2562,12 @@
           "sort": "desc"
         }
       },
-      "id": 36,
+      "id": 38,
       "gridPos": {
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 108
+        "y": 119
       }
     }
   ]

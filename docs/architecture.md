@@ -22,6 +22,7 @@ flowchart TB
       A[("Postgres audit<br/>runs · tasks · dq · logs · health · table stats")]
       LK[(Loki)]
       PR[(Prometheus)]
+      TP[("Tempo<br/>traces")]
       GF[Grafana]
     end
     L & X & B & S & G -. events/metrics .-> OBS
@@ -117,16 +118,52 @@ change_type (NEW|CHANGED), closed_reason (CHANGED|ABSENT), _run_id, _updated_at`
 | Rejected rows | bronze / silver | Delta + SQL | `audit.quarantine` + `audit.quarantine_summary` | *Pipeline health*, notebooks |
 | Batch metrics | `commons/metrics.py`, `finalize_run` | Pushgateway | Prometheus (`job=lambda_pipeline`) | dashboards, alert rules |
 | Airflow metrics | Airflow (OpenTelemetry) | OTLP/HTTP → Alloy → remote write | Prometheus (`airflow_*`) | *Airflow* dashboard, alerts |
-| Run trace | audit tables | view `audit.v_trace_spans` | Postgres | *Pipeline health* → Traces panel |
+| Run trace (OTel) | `commons/tracing.py` via `TaskRun`, `log_event`, `finalize_run` | OTLP/HTTP → Alloy :4318 → OTLP/gRPC :4417 | Tempo (`/var/lib/tempo`, 14 d) | *Pipeline health* → Trace (Tempo), Explore |
+| Airflow trace | Airflow 3 (`AIRFLOW__TRACES__OTEL_ON`) | OTLP/HTTP → Alloy → Tempo | Tempo (service `Airflow`) | Explore; linked from our task spans |
+| Span metrics (RED) | Tempo metrics-generator | remote write | Prometheus (`traces_spanmetrics_*`, `traces_service_graph_*`) | Explore, Tempo → metrics links |
+| Run trace (SQL fallback) | audit tables | view `audit.v_trace_spans` | Postgres | *Pipeline health* → Traces panel (audit SQL) |
 | Spark execution | Spark UI / event log | — | `/mnt/datalake/spark-events` | Spark UI :4040, History :18080 |
 
 Dashboards are code: `infra/grafana/build_dashboards.py` → `infra/grafana/install.sh`; every query is checked by
 `infra/grafana/validate_dashboards.py`. Alert rules: `infra/prometheus/rules/lambda_pipeline.yml`.
 
+### Traces (ADR 0004, phase 2)
+
+```mermaid
+flowchart LR
+    T["TaskRun / log_event / finalize_run<br/>(OTel SDK, env-data)"] -- "OTLP/HTTP :4318" --> AL[Alloy]
+    AF["Airflow 3<br/>dag_run · task_run · worker.&lt;task&gt;"] -- "OTLP/HTTP :4318" --> AL
+    AL -- "OTLP/gRPC 127.0.0.1:4417" --> TP[(Tempo)]
+    TP -- "span metrics (remote write)" --> PR[(Prometheus)]
+    TP --> GF[Grafana]
+    LK[(Loki)] <-- "trace_id" --> GF
+```
+
+* **One trace per run.** `trace_id = md5(run_id)`, root span id `md5(run_id/root)[:16]`, task span id
+  `md5(run_id/task_id/attempt)[:16]` - the same ids `audit.v_trace_spans` computes in SQL. Every task process derives
+  them on its own, so all tasks (and retries) of a DAG run land in one trace with no context passing.
+* **Span tree.** `rfb.run` (written by `finalize_run`, or by the task itself for a standalone manual run) →
+  `<task_id>[<entity>]` (one per attempt; attributes `pipeline, task_id, layer, entity, ref_month, run_id, attempt,
+  airflow_task_id`, counters and status at the end; `dq_check` span events; exceptions recorded) → timed steps (every
+  `log_event` with `seconds` or `latency_ms`, named `<event>[:<component|target|table|entity>]`).
+* **Airflow's spans** live in their own trace (random id per DAG run). `TracedBashOperator` passes the current
+  `worker.<task>` span as `TRACEPARENT`; our task span (and the root span) carries a *span link* to it, so Tempo
+  jumps from "what our code did" to "what the scheduler/worker did" for the same task.
+* **Logs ↔ traces.** Every JSON log line carries `trace_id`/`span_id` (Alloy also stores them as Loki structured
+  metadata). Grafana: a Loki line → "Trace in Tempo"; a span → "Logs for this span" (`{job="lambda-pipelines"} |
+  trace_id="…"` in the span's time window).
+* **Never blocks a run.** `LAMBDA_OTEL_ENABLED=0`, a missing SDK or no collector on :4318 at start-up → tracing is a
+  no-op (one warning line); Tempo down → Alloy retries from a bounded queue, then drops.
+
 ## 6. Runbook
 
 * **Run a month:** start the on-demand services (`sudo systemctl start seaweedfs spark-master spark-worker
-  spark-history loki alloy`), then in Airflow unpause `rfb_pipeline` and *Trigger DAG w/ config* `{"ref_month": "2026-09"}`.
+  spark-history loki alloy tempo`), then in Airflow unpause `rfb_pipeline` and *Trigger DAG w/ config*
+  `{"ref_month": "2026-09"}`.
+* **See a trace:** *Pipeline health* → "Trace of the run (Tempo)" for the selected run, or Explore → Tempo →
+  TraceQL `{resource.service.name="lambda-rfb"}`; the trace id of any run is `md5(run_id)` (`SELECT md5(run_id)`).
+* **Several manual scripts as one run:** `export LAMBDA_RUN_ID=manual__$(date -u +%Y%m%dT%H%M%SZ)`, run the scripts,
+  then `python -m pipelines.commons.finalize_run --pipeline rfb` (closes the audit run and writes the root span).
 * **Watch:** Airflow Grid (task logs live) · Spark UI `localhost:4040` · Grafana *RFB · Pipeline health & tracing*
   (select the run) · *Logs* dashboard.
 * **Re-run a month:** trigger again with the same `ref_month`: bronze replaces its partition, silver rolls the month

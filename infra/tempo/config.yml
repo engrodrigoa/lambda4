@@ -1,0 +1,71 @@
+# Grafana Tempo 3.1 (single binary, target "all") - lambda4 trace backend. Installed as /etc/tempo/config.yml by
+# infra/tempo/install.sh. Everything binds to 127.0.0.1: traces arrive only through Alloy (the single OTLP front
+# door on 127.0.0.1:4318), and Grafana reads them on 127.0.0.1:3200.
+#
+#   pipelines (OTel SDK) ─┐
+#   Airflow (OTel traces) ┴─> Alloy :4318 (OTLP/HTTP) ──> Tempo :4417 (OTLP/gRPC) ──> /var/lib/tempo (SSD)
+#                                                            └─ metrics-generator ──> Prometheus remote write
+stream_over_http_enabled: true
+
+server:
+  http_listen_address: 127.0.0.1
+  http_listen_port: 3200
+  grpc_listen_address: 127.0.0.1
+  grpc_listen_port: 9095
+  log_level: info
+
+# no anonymous usage reports from a home lab
+usage_report:
+  reporting_enabled: false
+
+# single instance: the hash rings live in memory, nothing gossips on the network
+memberlist:
+  bind_addr: [127.0.0.1]
+  join_members: []
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        # not 4317: the standard OTLP ports belong to Alloy; Tempo is only reachable through it
+        grpc:
+          endpoint: "127.0.0.1:4417"
+
+query_frontend:
+  search:
+    duration_slo: 5s
+  trace_by_id:
+    duration_slo: 5s
+
+# RED metrics derived from spans (span-metrics) and the task -> task call graph (service-graphs), pushed to
+# Prometheus (it runs with --web.enable-remote-write-receiver). local-blocks enables TraceQL metrics queries.
+metrics_generator:
+  processor:
+    span_metrics:
+      dimensions: [pipeline, layer]   # span attributes -> Prometheus labels (low cardinality only)
+  registry:
+    external_labels:
+      source: tempo
+      host: lambdaserver
+  storage:
+    path: /var/lib/tempo/generator/wal
+    remote_write:
+      - url: http://127.0.0.1:9090/api/v1/write
+        send_exemplars: true
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/lib/tempo/wal
+    local:
+      path: /var/lib/tempo/blocks
+
+backend_worker:
+  compaction:
+    block_retention: 336h          # 14 days of traces (a run is a few KB; the SSD is not the constraint)
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [service-graphs, span-metrics, local-blocks]

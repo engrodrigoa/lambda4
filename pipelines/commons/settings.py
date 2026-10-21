@@ -55,6 +55,9 @@ class Settings:
     # metrics
     metrics_enabled: bool
     pushgateway_url: str
+    # traces (OpenTelemetry SDK -> OTLP/HTTP -> Alloy -> Tempo)
+    otel_enabled: bool
+    otel_endpoint: str
     # spark
     spark_home: str
     spark_conf_dir: str
@@ -99,6 +102,8 @@ def get_settings() -> Settings:
         audit_spool_dir=Path(get("LAMBDA_AUDIT_SPOOL_DIR", str(scratch / "audit-spool"))),
         metrics_enabled=_flag(get("LAMBDA_METRICS_ENABLED", "1")),
         pushgateway_url=get("LAMBDA_PUSHGATEWAY_URL", "127.0.0.1:9091"),
+        otel_enabled=_flag(get("LAMBDA_OTEL_ENABLED", "1")),
+        otel_endpoint=get("LAMBDA_OTEL_ENDPOINT", "http://127.0.0.1:4318"),
         spark_home=get("SPARK_HOME", "/opt/spark"),
         spark_conf_dir=get("SPARK_CONF_DIR", "/etc/spark"),
         pyspark_python=get("PYSPARK_PYTHON", str(Path.home() / ".envs" / "env-data" / "bin" / "python")),

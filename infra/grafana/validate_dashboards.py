@@ -8,6 +8,7 @@ Grafana macros/variables are replaced by plausible values. Exit code 1 if any qu
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -69,6 +70,23 @@ def logql(expr: str) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def traceql(query: str, run_id: str) -> tuple[bool, str]:
+    """A trace id is looked up (404 = the run has no Tempo trace: OK for runs that predate tracing); else a search."""
+    query = query.replace("$trace_id", hashlib.md5(run_id.encode()).hexdigest())
+    try:
+        if re.fullmatch(r"[0-9a-f]{32}", query):
+            try:
+                d = http_json(f"http://127.0.0.1:3200/api/v2/traces/{query}")
+                spans = sum(len(ss["spans"]) for rs in d["trace"]["resourceSpans"] for ss in rs["scopeSpans"])
+                return True, f"{spans} spans"
+            except urllib.error.HTTPError as exc:
+                return exc.code == 404, f"HTTP {exc.code} (no trace for the latest run)"
+        d = http_json("http://127.0.0.1:3200/api/search?" + urllib.parse.urlencode({"q": query, "limit": 5}))
+        return True, f"{len(d.get('traces', []))} traces"
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc)
+
+
 def targets(board: dict):
     for p in board["panels"]:
         for t in p.get("targets", []):
@@ -95,6 +113,8 @@ def main() -> int:
                 ok, info = run_sql(DBS[uid], sql_text(t["rawSql"], run_id))
             elif uid == "prometheus":
                 ok, info = promql(t["expr"])
+            elif uid == "tempo":
+                ok, info = traceql(t["query"], run_id)
             elif uid == "loki":
                 if "var" in t:
                     ok, info = True, "label_values variable (checked by the panels using it)"

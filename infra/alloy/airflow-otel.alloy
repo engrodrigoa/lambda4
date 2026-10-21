@@ -49,13 +49,15 @@ loki.process "airflow_tasks" {
   forward_to = [loki.write.local.receiver]
 }
 
-// --- OpenTelemetry metrics from Airflow -> Prometheus (remote write)
+// --- The single OTLP front door (127.0.0.1:4318, OTLP/HTTP)
+// metrics: Airflow -> Prometheus (remote write); traces: Airflow + pipelines (OTel SDK) -> Tempo (lambda-traces.alloy)
 otelcol.receiver.otlp "airflow" {
   http {
     endpoint = "127.0.0.1:4318"
   }
   output {
     metrics = [otelcol.processor.batch.airflow.input]
+    traces  = [otelcol.processor.batch.traces.input]
   }
 }
 

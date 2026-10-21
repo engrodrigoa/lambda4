@@ -5,6 +5,8 @@
 Runs as the LAST task of the DAG with trigger_rule=all_done, so it executes even when upstream tasks failed.
 It exits 1 when the run failed: otherwise this always-green leaf task would make Airflow mark a broken run as
 success (a DAG run's state comes from its leaf tasks).
+It also writes the run's root span (pipelines/commons/tracing.py): the task spans already point at it as parent.
+Manual runs that share LAMBDA_RUN_ID across several scripts call this at the end to close the run and its trace.
 Not a TaskRun on purpose: it must not count itself among the run's tasks.
 """
 from __future__ import annotations
@@ -15,6 +17,7 @@ import os
 import sys
 import time
 
+from pipelines.commons import tracing
 from pipelines.commons.audit import get_sink
 from pipelines.commons.logger import LOG_CONTEXT, configure_logging, get_logger, log_event
 from pipelines.commons.settings import get_settings
@@ -22,6 +25,7 @@ from pipelines.commons.task import finalize_pipeline_run
 
 SUMMARY_SQL = """
 SELECT p.status, extract(epoch FROM p.finished_at - p.started_at) AS duration_s, p.ref_month,
+       extract(epoch FROM p.started_at) AS started_epoch, p.trigger,
        p.tasks_total, p.tasks_ok, p.tasks_failed, p.warn_count, p.block_count,
        (SELECT coalesce(sum(t.rows_out), 0) FROM audit.task_run t WHERE t.run_id = p.run_id
           AND t.layer IN ('bronze', 'silver', 'gold')) AS rows_written,
@@ -88,12 +92,21 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001
         log.warning("could not read the run summary from audit: %s", exc)
 
+    started_epoch = summary.pop("started_epoch", None)
+    trigger = summary.pop("trigger", None)
+    trace_ids = None
+    if started_epoch and tracing.setup(args.pipeline):
+        trace_ids = tracing.emit_run_span(run_id=args.run_id, pipeline=args.pipeline, start_ns=int(started_epoch * 1e9),
+                              status=summary.get("status") or "UNKNOWN",
+                              attrs={k: v for k, v in summary.items() if k != "status"} | {"trigger": trigger})
+        tracing.shutdown()
+
     failed = summary.get("status") == "FAILED"
     log_event(log, "pipeline_end",
               f"{args.pipeline} run {args.run_id}: {summary.get('status')} in {summary.get('duration_s') or 0:.0f}s, "
               f"{summary.get('tasks_ok')}/{summary.get('tasks_total')} tasks ok, "
               f"{int(summary.get('rows_written') or 0):,} rows written",
-              level=logging.ERROR if failed else logging.INFO, **summary)
+              level=logging.ERROR if failed else logging.INFO, trace_ids=trace_ids, **summary)
     push_pipeline_metrics(args.pipeline, summary)
     get_sink().close()
     return 1 if failed else 0

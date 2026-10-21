@@ -154,6 +154,9 @@ def main(argv: list[str] | None = None) -> int:
             "pushgateway": lambda: http_ready(
                 (s.pushgateway_url if s.pushgateway_url.startswith("http") else f"http://{s.pushgateway_url}")
                 + "/-/ready"),
+            # traces: the OTLP collector (Alloy, on demand) and the trace store (Tempo, on demand)
+            "alloy": lambda: http_ready("http://127.0.0.1:12345/-/ready"),
+            "tempo": lambda: http_ready("http://127.0.0.1:3200/ready"),
         }
         for name, fn in observability.items():
             ok, ms, detail = probe(fn)

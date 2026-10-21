@@ -1,0 +1,66 @@
+# /etc/grafana/provisioning/datasources/obs-plus.yaml - observability datasources (no secrets; versioned 2026-10-21).
+# Installed by infra/tempo/install.sh. `$$` escapes a literal `$` (Grafana expands $VAR / ${VAR} in provisioning).
+# Logs <-> traces: Loki lines carry trace_id/span_id (JSON + structured metadata);
+# Tempo spans link back to Loki by trace_id in the span's time window.
+apiVersion: 1
+datasources:
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://127.0.0.1:3100
+    jsonData:
+      derivedFields:
+        # "View trace" button on every pipeline log line that has a trace id
+        - name: TraceID
+          matcherType: regex
+          matcherRegex: '"trace_id":\s*"([0-9a-f]{32})"'
+          datasourceUid: tempo
+          url: "$${__value.raw}"
+          urlDisplayLabel: "Trace in Tempo"
+  - name: Alertmanager
+    uid: alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://127.0.0.1:9093
+    jsonData:
+      implementation: prometheus
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://127.0.0.1:3200
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-1m"
+        spanEndTimeShift: "1m"
+        customQuery: true
+        # trace_id is structured metadata: no `| json` needed; the span's time window narrows it to the span
+        query: '{job="lambda-pipelines"} | trace_id="$${__trace.traceId}"'
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: "-10m"
+        spanEndTimeShift: "10m"
+        tags:
+          - key: pipeline
+            value: pipeline
+        queries:
+          - name: Task duration (last runs)
+            query: 'lambda_task_duration_seconds{$$__tags}'
+          - name: Span rate by task (Tempo span-metrics)
+            query: 'sum by (span_name) (rate(traces_spanmetrics_calls_total{$$__tags}[5m]))'
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true
+      lokiSearch:
+        datasourceUid: loki
+      search:
+        hide: false
+      traceQuery:
+        timeShiftEnabled: true
+        spanStartTimeShift: "-12h"
+        spanEndTimeShift: "12h"
+      streamingEnabled:
+        search: true

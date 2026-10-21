@@ -1,0 +1,25 @@
+// --- Traces -> Grafana Tempo (added 2026-10-21; lambda4 infra/alloy/lambda-traces.alloy, ADR 0004 phase 2)
+// Sources: the pipelines' OTel SDK (pipelines/commons/tracing.py) and Airflow 3 (AIRFLOW__TRACES__OTEL_ON), both
+// through otelcol.receiver.otlp "airflow" (127.0.0.1:4318). Tempo is on demand: while it is stopped the exporter
+// retries from a bounded in-memory queue and then drops (the pipeline never waits on it).
+otelcol.processor.batch "traces" {
+  timeout = "2s"
+  output {
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "127.0.0.1:4417"
+    tls {
+      insecure = true
+    }
+  }
+  sending_queue {
+    queue_size = 2000
+  }
+  retry_on_failure {
+    max_elapsed_time = "10m"
+  }
+}

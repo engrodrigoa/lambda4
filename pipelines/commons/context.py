@@ -14,6 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+_GENERATED_RUN_IDS: set[str] = set()
 
 
 @lru_cache(maxsize=1)
@@ -44,6 +45,7 @@ class RunContext:
             # one id per manual process; exported so child processes join the same run
             run_id = "manual__" + datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
             os.environ["LAMBDA_RUN_ID"] = run_id
+            _GENERATED_RUN_IDS.add(run_id)
         prefix = run_id.split("__", 1)[0]
         trigger = prefix if prefix in {"manual", "scheduled", "backfill", "dataset_triggered", "asset_triggered"} \
             else "manual"
@@ -56,6 +58,11 @@ class RunContext:
             git_sha=git_sha(),
             airflow_task_id=os.environ.get("AIRFLOW_CTX_TASK_ID"),
         )
+
+
+def run_started_here(run_id: str) -> bool:
+    """True when this process created the run id (a standalone manual run): it alone may close the run's trace."""
+    return run_id in _GENERATED_RUN_IDS
 
 
 def airflow_attempt() -> int:

@@ -240,7 +240,8 @@ CREATE TABLE IF NOT EXISTS audit.delta_table_stats (
 CREATE INDEX IF NOT EXISTS delta_table_stats_idx ON audit.delta_table_stats (pipeline, table_name, captured_at DESC);
 
 -- ---------------------------------------------------------------- v_trace_spans: a run as a trace (Grafana Traces panel)
--- root span = pipeline_run, child spans = task_run attempts, grandchild spans = timed step events (fields.seconds)
+-- root span = pipeline_run, child spans = task_run attempts, grandchild spans = timed step events (fields.seconds or
+-- fields.latency_ms). Same trace/run/task ids as the OpenTelemetry spans in Tempo (pipelines/commons/tracing.py).
 CREATE OR REPLACE VIEW audit.v_trace_spans AS
 SELECT md5(p.run_id)                                   AS "traceID",
        left(md5(p.run_id || '/root'), 16)              AS "spanID",
@@ -269,13 +270,18 @@ SELECT md5(l.run_id),
        left(md5(l.run_id || '/' || l.task_id || '/' || coalesce((
            SELECT max(attempt) FROM audit.task_run tr WHERE tr.run_id = l.run_id AND tr.task_id = l.task_id), 1)), 16),
        l.run_id,
-       l.event || coalesce(' ' || (l.fields->>'entity'), '') || coalesce(' ' || (l.fields->>'file'), ''),
+       l.event || coalesce(' ' || (l.fields->>'component'), '') || coalesce(' ' || (l.fields->>'entity'), '')
+               || coalesce(' ' || (l.fields->>'file'), ''),
        'step',
-       (extract(epoch FROM l.ts) - (l.fields->>'seconds')::numeric) * 1000,
-       (l.fields->>'seconds')::numeric * 1000,
+       (extract(epoch FROM l.ts) - st.step_s) * 1000,
+       st.step_s * 1000,
        l.level
 FROM audit.log_event l
-WHERE l.fields ? 'seconds' AND (l.fields->>'seconds') ~ '^[0-9.]+$' AND l.run_id IS NOT NULL AND l.task_id IS NOT NULL;
+CROSS JOIN LATERAL (SELECT coalesce(
+           CASE WHEN (l.fields->>'seconds') ~ '^[0-9.]+$' THEN (l.fields->>'seconds')::numeric END,
+           CASE WHEN (l.fields->>'latency_ms') ~ '^[0-9.]+$' THEN (l.fields->>'latency_ms')::numeric / 1000 END)
+       AS step_s) st
+WHERE st.step_s > 0 AND l.run_id IS NOT NULL AND l.task_id IS NOT NULL;
 
 GRANT SELECT ON ALL TABLES IN SCHEMA audit TO grafana_ro;
 GRANT SELECT ON ALL TABLES IN SCHEMA audit TO dbeaver_ro;

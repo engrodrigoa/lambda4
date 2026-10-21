@@ -35,6 +35,7 @@ alertmanager|prometheus-alertmanager|9093|/-/healthy|http://localhost:9093
 grafana|grafana-server|3000|/api/health|http://localhost:3000
 loki|loki|3100|/ready|-
 alloy|alloy|12345|/-/ready|http://localhost:12345
+tempo|tempo|3200|/ready|-
 pushgateway|prometheus-pushgateway|9091|/-/ready|http://localhost:9091
 node-exporter|prometheus-node-exporter|9100|/metrics|-
 postgres-exporter|prometheus-postgres-exporter|9187|/metrics|-

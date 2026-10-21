@@ -9,10 +9,11 @@
     if __name__ == "__main__":
         sys.exit(run_task(main, pipeline="rfb", task_id="rfb01_download", layer="landing", ref_month=ref))
 
-On enter: logging context, audit.pipeline_run (first task creates it), audit.task_run RUNNING, `task_start` event.
+On enter: logging context, the task's trace span (pipelines/commons/tracing.py), audit.pipeline_run (first task
+          creates it), audit.task_run RUNNING, `task_start` event.
 On exit:  status + exit code, `task_end` event with every counter, audit.task_run finished, Pushgateway metrics,
-          and - for a manual standalone run - the pipeline_run is finalized too (under Airflow the DAG's last task
-          does it with `finalize_pipeline_run`).
+          the span closed with status and counters, and - for a manual standalone run - the pipeline_run is finalized
+          too, root span included (under Airflow the DAG's last task does it: `pipelines.commons.finalize_run`).
 Exceptions are recorded with their traceback and turned into exit code 1: TaskRun is the outermost layer.
 """
 from __future__ import annotations
@@ -24,9 +25,9 @@ import traceback
 from collections.abc import Callable
 from typing import Any
 
-from pipelines.commons import dq, metrics
+from pipelines.commons import dq, metrics, tracing
 from pipelines.commons.audit import get_sink, utcnow_iso
-from pipelines.commons.context import RunContext, airflow_attempt
+from pipelines.commons.context import RunContext, airflow_attempt, run_started_here
 from pipelines.commons.logger import LOG_CONTEXT, configure_logging, get_logger, log_event
 from pipelines.commons.refmonth import RefMonth
 
@@ -71,6 +72,18 @@ class TaskRun:
         self.exit_code: int | None = None
         self.log = get_logger(f"{pipeline}.{task_id}")
         self._t0 = 0.0
+        self._t0_ns = 0
+        self._span = None
+
+    @property
+    def span_name(self) -> str:
+        return f"{self.task_id}[{self.entity}]" if self.entity else self.task_id
+
+    def span_attributes(self) -> dict[str, Any]:
+        return {"pipeline": self.pipeline, "task_id": self.task_id, "layer": self.layer, "entity": self.entity,
+                "ref_month": self.ref_month.yyyymm if self.ref_month else None, "run_id": self.ctx.run_id,
+                "attempt": self.attempt, "airflow_task_id": self.ctx.airflow_task_id, "dag_id": self.ctx.dag_id,
+                "trigger": self.ctx.trigger, "git_sha": self.ctx.git_sha}
 
     # ------------------------------------------------------------------ counters / metrics
     def set(self, **values: int | None) -> None:
@@ -93,6 +106,8 @@ class TaskRun:
         """For tasks that resolve the month themselves (e.g. `--ref-month next`): stamps logs and the audit rows."""
         self.ref_month = ref
         LOG_CONTEXT["ref_month"] = ref.yyyymm
+        if self._span is not None:
+            self._span.set_attribute("ref_month", ref.yyyymm)
 
     # ------------------------------------------------------------------ data quality
     def check(self, name: str, passed: bool, *, observed: float | None = None, threshold: float | None = None,
@@ -109,6 +124,8 @@ class TaskRun:
         log_event(self.log, "dq_check", f"{name} {status}" + (f": {message}" if message else ""), level=level,
                   check=name, severity=severity.value, status=status, observed=observed, threshold=threshold,
                   **context)
+        tracing.add_event("dq_check", {"check": name, "severity": severity.value, "status": status,
+                                       "observed": observed, "threshold": threshold, "message": message or None})
         if not passed:
             if severity is dq.Severity.BLOCK:
                 self.block_count += 1
@@ -122,6 +139,12 @@ class TaskRun:
         configure_logging(self.pipeline)
         LOG_CONTEXT.update(run_id=self.ctx.run_id, task_id=self.task_id,
                            ref_month=self.ref_month.yyyymm if self.ref_month else None)
+        self._t0_ns = time.time_ns()
+        # the span opens first so every log line of the task carries its trace_id/span_id
+        if tracing.setup(self.pipeline):
+            self._span = tracing.start_task_span(run_id=self.ctx.run_id, task_id=self.task_id, attempt=self.attempt,
+                                                 name=self.span_name, attrs=self.span_attributes(),
+                                                 start_ns=self._t0_ns)
         sink = get_sink()
         now = utcnow_iso()
         ref = self.ref_month.yyyymm if self.ref_month else None
@@ -181,6 +204,18 @@ class TaskRun:
             warn_count=self.warn_count, block_count=self.block_count)
         if self.finalize_pipeline:
             finalize_pipeline_run(self.ctx.run_id, ref_month=self.ref_month.yyyymm if self.ref_month else None)
+        tracing.end_task_span(self._span, status=self.status, error=exc if self.status == "FAILED" else None,
+                              attrs={**counters, "exit_code": self.exit_code, "duration_s": round(duration, 3),
+                                     "warn_count": self.warn_count, "block_count": self.block_count,
+                                     "spark_app_id": self.spark_app_id, "error_message": error_message})
+        self._span = None
+        if self.finalize_pipeline and run_started_here(self.ctx.run_id):
+            # a standalone manual run is its own pipeline run: close the trace with the root span
+            tracing.emit_run_span(run_id=self.ctx.run_id, pipeline=self.pipeline, start_ns=self._t0_ns,
+                                  status=self.status,
+                                  attrs={"ref_month": self.ref_month.yyyymm if self.ref_month else None,
+                                         "trigger": self.ctx.trigger, "tasks_total": 1})
+        tracing.flush()
         sink.flush()
         if sink.spooled:
             self.log.warning("%d audit events spooled (database unavailable); they replay on the next run",
@@ -211,4 +246,5 @@ def run_task(fn: Callable[[TaskRun], None], **task_kwargs: Any) -> int:
         get_sink().close()
         return task.exit_code if task.exit_code is not None else EXIT_FAILED
     finally:
+        tracing.shutdown()
         signal.signal(signal.SIGTERM, previous)

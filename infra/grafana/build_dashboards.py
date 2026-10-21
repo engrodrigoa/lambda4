@@ -3,7 +3,8 @@
     python infra/grafana/build_dashboards.py          # writes infra/grafana/dashboards/*.json
     infra/grafana/install.sh                          # copies them to Grafana's provisioning folder
 
-Data sources (provisioned by the lab): prometheus, loki, pg-lambda (audit schema), pg-airflow (Airflow metadata DB).
+Data sources (provisioned by the lab): prometheus, loki, tempo, pg-lambda (audit schema), pg-airflow (Airflow
+metadata DB).
 Every query here is also executed by infra/grafana/validate_dashboards.py against the live sources.
 """
 from __future__ import annotations
@@ -16,6 +17,7 @@ PROM = {"type": "prometheus", "uid": "prometheus"}
 LOKI = {"type": "loki", "uid": "loki"}
 PG = {"type": "grafana-postgresql-datasource", "uid": "pg-lambda"}
 AF = {"type": "grafana-postgresql-datasource", "uid": "pg-airflow"}
+TEMPO = {"type": "tempo", "uid": "tempo"}
 TAGS = ["lambda4", "rfb"]
 
 STATUS_COLORS = {"SUCCESS": "green", "FAILED": "red", "RUNNING": "blue", "SKIPPED": "text", "PASS": "green",
@@ -41,6 +43,12 @@ def prom(expr: str, legend: str = "", ref: str = "A") -> dict:
 
 def loki(expr: str, legend: str = "", ref: str = "A") -> dict:
     return {"refId": ref, "datasource": LOKI, "expr": expr, "legendFormat": legend, "queryType": "range"}
+
+
+def traceql(query: str, ref: str = "A", limit: int = 20) -> dict:
+    """A trace id (lookup) or a TraceQL search against Tempo."""
+    return {"refId": ref, "datasource": TEMPO, "queryType": "traceql", "query": query, "limit": limit,
+            "tableType": "traces"}
 
 
 # ----------------------------------------------------------------------------------------------- layout
@@ -170,6 +178,11 @@ def traces(title: str, target: dict, desc: str = "") -> dict:
             "targets": [target]}
 
 
+def tempo_table(title: str, target: dict, desc: str = "") -> dict:
+    return {"type": "table", "title": title, "description": desc, "datasource": TEMPO, "targets": [target],
+            "fieldConfig": {"defaults": {}, "overrides": []}, "options": {"showHeader": True}}
+
+
 def runs_annotation() -> dict:
     return {"name": "Pipeline runs", "enable": True, "iconColor": "#8AB8FF", "datasource": PG,
             "target": sql("""SELECT started_at AS time, coalesce(finished_at, now()) AS timeend,
@@ -181,6 +194,10 @@ RUN_VAR = {"name": "run_id", "label": "Run", "type": "query", "datasource": PG, 
            "query": "SELECT run_id FROM audit.pipeline_run WHERE pipeline = 'rfb' ORDER BY started_at DESC LIMIT 100",
            "definition": "SELECT run_id FROM audit.pipeline_run WHERE pipeline = 'rfb' ORDER BY started_at DESC "
                          "LIMIT 100", "includeAll": False, "multi": False, "current": {}}
+# the run's trace id is md5(run_id) in Tempo, in audit.v_trace_spans and on every log line (pipelines/commons/tracing)
+TRACE_VAR = {"name": "trace_id", "label": "Trace id", "type": "query", "datasource": PG, "refresh": 1, "hide": 2,
+             "query": "SELECT md5('$run_id')", "definition": "SELECT md5('$run_id')", "includeAll": False,
+             "multi": False, "current": {}}
 
 
 # ----------------------------------------------------------------------------------------------- 1. pipeline health
@@ -188,7 +205,7 @@ def pipeline_health() -> dict:
     b = Board("lambda4-rfb-health", "RFB · Pipeline health & tracing",
               "Health, tracing, volume and data quality of the RFB lakehouse pipeline (source: audit schema, "
               "Pushgateway metrics, node/Spark exporters).", [*TAGS, "pipeline"], time_from="now-7d")
-    b.vars.append(RUN_VAR)
+    b.vars.extend([RUN_VAR, TRACE_VAR])
     b.annotations.append(runs_annotation())
     R = "'$run_id'"
 
@@ -214,11 +231,21 @@ def pipeline_health() -> dict:
                                        f"WHERE run_id = {R}"), thresholds=orange_if_positive()), 3, 4)
 
     b.row("Execution trace (run → tasks → timed steps)")
-    b.add(traces("Trace of the run", sql(f"""SELECT "traceID", "spanID", "parentSpanID", "operationName",
-                 "serviceName", "startTime", duration FROM audit.v_trace_spans WHERE run_id = {R}
-                 ORDER BY "startTime" """),
-                 desc="Root span = DAG run; children = task attempts; grandchildren = timed steps logged by the "
-                      "scripts (fields.seconds). Built from audit.v_trace_spans."), 24, 12)
+    b.add(traces("Trace of the run (Tempo)", traceql("$trace_id"),
+                 desc="OpenTelemetry spans in Tempo (trace id = md5(run_id)): root = the run (closed by finalize), "
+                      "children = task attempts (TaskRun), grandchildren = timed steps (log events with seconds / "
+                      "latency_ms). Span details: attributes, dq_check events, exceptions, a link to Airflow's "
+                      "worker span, and 'Logs for this span' (Loki by trace_id). Needs tempo + alloy running."),
+          24, 14)
+    b.add(tempo_table("Recent pipeline traces (Tempo)",
+                      traceql('{resource.service.name="lambda-rfb" && span.task_id != nil}', limit=30),
+                      desc="TraceQL search: the last traces of the RFB pipeline (manual runs included); click a "
+                           "trace id to open it."), 12, 9)
+    b.add(traces("Trace of the run (audit SQL, works without Tempo)", sql(f"""SELECT "traceID", "spanID",
+                 "parentSpanID", "operationName", "serviceName", "startTime", duration FROM audit.v_trace_spans
+                 WHERE run_id = {R} ORDER BY "startTime" """),
+                 desc="Same ids as the Tempo trace, rebuilt from the audit tables (audit.v_trace_spans): the "
+                      "fallback when Tempo is stopped or the run predates tracing."), 12, 9)
     b.add(barchart("Task duration in this run", sql(
         f"""SELECT task_id || CASE WHEN attempt > 1 THEN ' #' || attempt ELSE '' END AS task,
             round(coalesce(duration_s, extract(epoch FROM now() - started_at))) AS seconds

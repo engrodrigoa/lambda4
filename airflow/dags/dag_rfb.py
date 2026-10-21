@@ -17,6 +17,9 @@
 Every task logs JSON events (Loki, `audit.log_event`), records itself in `audit.task_run`, pushes metrics to the
 Pushgateway and evaluates data-quality checks (`audit.dq_event`, BLOCK stops the task, WARN continues).
 Exit code 99 = nothing to do (e.g. month not published yet) → the task is **skipped**, not failed.
+
+**Traces:** every task is a span in one trace per run (Tempo, trace id = md5(run_id)); each process also receives
+Airflow's own `worker.<task>` span as `TRACEPARENT`, and our span links to it.
 """
 from __future__ import annotations
 
@@ -50,9 +53,27 @@ def asset(layer: str, table: str) -> Asset:
     return Asset(name=f"rfb_{layer}.{table}", uri=f"lambda://rfb/{layer}/{table}")
 
 
+class TracedBashOperator(BashOperator):
+    """BashOperator that hands Airflow's current span (`worker.<task>`, when AIRFLOW__TRACES__OTEL_ON) to the process
+    as W3C TRACEPARENT; pipelines/commons/tracing.py turns it into a span link."""
+
+    def get_env(self, context) -> dict:
+        env = super().get_env(context)
+        try:
+            from opentelemetry.propagate import inject
+
+            carrier: dict[str, str] = {}
+            inject(carrier)
+            if carrier.get("traceparent"):
+                env["TRACEPARENT"] = carrier["traceparent"]
+        except Exception:  # noqa: BLE001 - tracing must never fail a task
+            pass
+        return env
+
+
 def step(task_id: str, module: str, args: str, *, pool: str = "default_pool", timeout_min: int = 60,
          retries: int = 1, priority: int = 1, outlets: list | None = None, **kw) -> BashOperator:
-    return BashOperator(
+    return TracedBashOperator(
         task_id=task_id,
         bash_command=f"{PY} -m {module} {args}".strip(),
         cwd=str(REPO), env=ENV, append_env=True,

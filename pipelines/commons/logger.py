@@ -7,6 +7,9 @@ Handlers (configured once per process by `configure_logging`):
 
 Use `log_event(logger, "event_code", "message", **fields)` for anything a dashboard or alert may key on: the event
 code is stable, the message is for humans.
+
+Traces: while tracing is on, every line carries `trace_id`/`span_id` (Grafana jumps between Loki and Tempo with them),
+and an event with a duration (`seconds`, or `latency_ms`) also becomes a child span of the task's span.
 """
 from __future__ import annotations
 
@@ -18,6 +21,7 @@ from datetime import UTC, datetime
 from logging.handlers import WatchedFileHandler
 from typing import Any
 
+from pipelines.commons import tracing
 from pipelines.commons.audit import get_sink
 from pipelines.commons.settings import get_settings
 
@@ -26,7 +30,8 @@ ROOT = "lambda"
 # mutable context stamped on every record (run/task are set by TaskRun)
 LOG_CONTEXT: dict[str, Any] = {"pipeline": None, "run_id": None, "task_id": None, "ref_month": None}
 
-_RESERVED = {"ts", "level", "logger", "pipeline", "run_id", "task_id", "ref_month", "event", "message", "exc"}
+_RESERVED = {"ts", "level", "logger", "pipeline", "run_id", "task_id", "ref_month", "event", "message", "exc",
+             "trace_id", "span_id"}
 _SECRET_KEY = re.compile(r"(password|passwd|secret|token|access_key|api_key|credential)", re.IGNORECASE)
 _configured = False
 
@@ -44,6 +49,9 @@ def _event_dict(record: logging.LogRecord) -> dict[str, Any]:
         "event": getattr(record, "event", None) or "log",
         "message": record.getMessage(),
     }
+    trace_id, span_id = getattr(record, "trace_ids", None) or tracing.current_ids()
+    if trace_id:
+        out["trace_id"], out["span_id"] = trace_id, span_id
     for key, value in _redact(getattr(record, "fields", None) or {}).items():
         out[f"field_{key}" if key in _RESERVED else key] = value
     if record.exc_info:
@@ -77,6 +85,8 @@ class AuditHandler(logging.Handler):
             fields = {k: v for k, v in d.items() if k not in _RESERVED}
             if "exc" in d:
                 fields["exc"] = d["exc"]
+            if "trace_id" in d:
+                fields["trace_id"], fields["span_id"] = d["trace_id"], d["span_id"]
             get_sink().log({
                 "ts": d["ts"], "run_id": d["run_id"], "task_id": d["task_id"], "pipeline": d["pipeline"],
                 "level": d["level"], "logger": d["logger"], "event": d["event"], "message": d["message"],
@@ -121,9 +131,33 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(f"{ROOT}.{name}")
 
 
+# fields that name WHAT a step worked on, low-cardinality: they qualify the span name ("health_check:s3")
+_STEP_QUALIFIERS = ("component", "target", "table", "entity")
+
+
+def _step_name(event: str, fields: dict[str, Any]) -> str:
+    qualifier = next((fields[k] for k in _STEP_QUALIFIERS if fields.get(k)), None)
+    return f"{event}:{qualifier}" if qualifier else event
+
+
+def _step_seconds(fields: dict[str, Any]) -> float | None:
+    for key, scale in (("seconds", 1.0), ("latency_ms", 0.001)):
+        value = fields.get(key)
+        if isinstance(value, int | float) and not isinstance(value, bool) and value > 0:
+            return value * scale
+    return None
+
+
 def log_event(logger: logging.Logger, event: str, message: str, level: int = logging.INFO,
-              exc_info: bool = False, **fields: Any) -> None:
-    logger.log(level, message, extra={"event": event, "fields": fields}, exc_info=exc_info)
+              exc_info: bool = False, trace_ids: tuple[str, str] | None = None, **fields: Any) -> None:
+    """`trace_ids` (trace_id, span_id) points the line at a span other than the current one."""
+    extra: dict[str, Any] = {"event": event, "fields": fields, "trace_ids": trace_ids}
+    seconds = _step_seconds(fields) if tracing.enabled() else None
+    if seconds is not None:
+        # a timed step becomes a span that ends now; the log line points at that span
+        extra["trace_ids"] = tracing.record_step(_step_name(event, fields), seconds,
+                                                 {**_redact(fields), "message": message}, error=level >= logging.ERROR)
+    logger.log(level, message, extra=extra, exc_info=exc_info)
 
 
 def reset_logging() -> None:
