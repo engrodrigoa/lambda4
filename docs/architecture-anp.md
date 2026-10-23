@@ -60,6 +60,14 @@ discovery (`listed`, first/last seen, `remote_bytes`); download (`download_statu
 
 Overlap: since 2023 the same collection can be in a semester, a month and a weekly file. Bronze keeps all of them.
 
+**`anp_bronze.batch_profile`** — statistics per **survey batch** (*lote de pesquisa* = one file × one collection
+month, `batch_month` = YYYYMM of `data_da_coleta`, 0 = unparseable date) and product (`produto = '*'` = the whole
+batch): `rows`, `stations` (distinct CNPJ digits), `brands`, `cities`, `ufs`, `price_avg/min/p50/max/stddev`,
+`price_missing`, `buy_price_avg`. Written by anp03 from the rows it just loaded, in the same transaction (replaced on
+reload); `python -m pipelines.anp.anp03_bronze --reprofile` recomputes it for loaded files. Prices and dates are
+parsed only here (profiling); bronze stays raw. **`anp_bronze.v_batch_matrix`**: one row per batch with the average
+price of each product in columns (gasolina … glp), stations, brands, `other_product_rows`, `price_missing`.
+
 ## 5. For the dbt project (owner)
 
 * Source: `anp_bronze.precos_raw` (`loaded_at_field: _ingested_at`); control/lineage in `ctrl.source_file` (join on
@@ -75,6 +83,25 @@ Overlap: since 2023 the same collection can be in a semester, a month and a week
   the dbt DAG on the asset `anp_bronze.precos_raw`.
 
 ## 6. Observability
+
+**Grafana dashboard `lambda4-anp` — "ANP · Pipeline health & survey batches"** (folder *Lambda4*, built by
+`infra/grafana/build_dashboards.py`, variables: run, file kind, product):
+
+* **Section 1 · Pipeline health:** run status/duration/failed tasks/files and bytes downloaded/rows loaded/DQ
+  fails/quarantine; tasks of the run, task durations, checks, preflight probes, the run's trace (audit SQL); source
+  files from `ctrl` (known/downloaded/loaded/pending/failed, by kind and state, files needing attention, control
+  events per day and the latest ones); Airflow `anp_pipeline` runs and task instances, Airflow task logs (Loki
+  `job=airflow-tasks`), pipeline events by level and warnings/errors (`audit.log_event`).
+* **Section 2 · Survey batches:** the batch matrix (`v_batch_matrix`: average price per product in columns,
+  stations = distinct CNPJ, brands); months covered; monthly average price per product (fuels and GLP separately,
+  one source per month: semestral > mensal > semanal); stations, brands, rows, cities/UFs per batch and file family;
+  price dispersion per batch and product (min/p50/avg/max, stddev, cv %); data quality per file (quarantine, rows
+  without a date or price, products outside the matrix). Survey panels show the whole history (25 y) whatever the
+  dashboard time range.
+
+Load cost (measured 2026-10-23 on a 915 k-row semester, rolled back): read 1.8 s; COPY ~45 k rows/s (psycopg3; the
+same CSV with `psql \copy` or psycopg2 ~100 k rows/s, so the gap is driver overhead, not the indexes; UNLOGGED would
+be ~285 k rows/s, the price of the WAL); batch profile ~12 s. First full load ≈ 15 min COPY + 8 min profile + reads.
 
 Same contract as RFB (ADR 0004): `audit.task_run` / `pipeline_run` / `dq_event` / `log_event` / `health_check` /
 `quarantine_summary`, Pushgateway metrics `job=lambda_pipeline, pipeline=anp`, Loki `job=lambda-pipelines`, one trace
@@ -98,6 +125,10 @@ WHERE file_key = 'semestral/ca/2014-S1' ORDER BY id;
   `... -m pipelines.commons.finalize_run --pipeline anp`.
 * **Full history:** unpause `anp_pipeline` and trigger with the defaults (~5.5 GB download, then ~40 M rows).
 * **Republication check of everything:** trigger with `{"full_recheck": true}`.
+* **Recompute the survey batch statistics** (after changing `PROFILE_SQL`):
+  `~/.envs/env-data/bin/python -m pipelines.anp.anp03_bronze --reprofile` (data untouched).
+* **Dashboards:** `infra/grafana/install.sh` (build + copy, needs sudo); `python3 infra/grafana/validate_dashboards.py`
+  runs every query as `grafana_ro`.
 * **Reload one file:** `UPDATE ctrl.source_file SET bronze_status = 'PENDING' WHERE pipeline = 'anp' AND file_key = '…'`
   and run bronze (its rows are replaced, never duplicated).
 * Services needed: Postgres (always on). Loki/Alloy/Tempo optional (degraded observability is a WARN). No Spark,

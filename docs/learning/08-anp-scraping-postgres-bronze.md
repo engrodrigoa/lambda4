@@ -111,7 +111,30 @@ trabalho da silver, no seu dbt.
 Detalhe de desenho: um arquivo recusado **não impede os outros**. Ele fica FAILED no `ctrl`, os demais carregam, e o
 BLOCK sobe no fim do lote. Você descobre o problema sem perder a carga do resto.
 
-## 6. O que fazer agora (você)
+## 6. Lotes de pesquisa e o dashboard (2026-10-23)
+
+**Lote de pesquisa = arquivo × mês da coleta.** Um arquivo mensal é um lote; um semestral, seis; um semanal, um ou
+dois. As estatísticas de cada lote (linhas, CNPJs distintos, bandeiras, municípios, UFs e, por produto, preço
+médio/mín/mediana/máx/desvio) ficam em `anp_bronze.batch_profile`, e a matriz que você pediu (lote nas linhas,
+preço médio de cada produto nas colunas, CNPJs e bandeiras) é a view `anp_bronze.v_batch_matrix`.
+
+Duas decisões que valem estudar:
+
+* **Calcular na carga, não no dashboard.** O Grafana atualiza a cada 30 s. Se cada painel varresse ~40 M linhas de
+  texto convertendo `'2,899'` para número, o banco sofreria a cada refresh. A estatística é calculada **uma vez**,
+  pelo próprio Postgres (`INSERT ... SELECT ... GROUP BY GROUPING SETS`), dentro da **mesma transação** da carga:
+  se o arquivo for recarregado, o perfil é substituído junto. `GROUPING SETS ((mes, produto), (mes))` dá numa passada
+  só o total por produto e o total do lote (`produto = '*'`).
+* **Converter só para perfilar.** A bronze continua texto; o parse de preço e data existe só no SQL do perfil. Linhas
+  com preço vazio ou não numérico viram `price_missing`, não erro.
+
+**Medir o driver (não o banco).** Num semestre real de 915 mil linhas, o COPY fez ~45 mil linhas/s. Antes de mexer
+em índices, comparamos o mesmo CSV por caminhos diferentes: `psql \copy` e psycopg2 ~100 mil/s, psycopg3 ~45 mil/s
+(com qualquer tamanho de bloco ou writer), tabela UNLOGGED ~285 mil/s, sem índices quase igual. Conclusão: os índices
+não eram o gargalo; ~metade do tempo é overhead do driver psycopg3, e outra parte é o WAL (o preço da durabilidade).
+Para a carga única de ~40 M linhas isso custa ~15 min; ficou registrado como ajuste opcional.
+
+## 7. O que fazer agora (você)
 
 1. Aplicar o DDL: `psql -d lambda -v ON_ERROR_STOP=1 -f infra/postgres/anp_schema.sql`.
 2. Primeiro teste pequeno, à mão (runbook em `docs/architecture-anp.md` §7): semanal, 3 arquivos.
@@ -119,7 +142,7 @@ BLOCK sobe no fim do lote. Você descobre o problema sem perder a carga do resto
 4. Carga completa pela DAG `anp_pipeline` (pausada até você ligar).
 5. Montar o projeto dbt do zero sobre `anp_bronze.precos_raw` (sugestão de modelo no §5 da referência).
 
-## 7. Perguntas para fixar
+## 8. Perguntas para fixar
 
 1. Por que o semanal precisa da data da página para ter identidade, e o semestral não?
 2. O que aconteceria se o `UPDATE` do `ctrl` fosse feito **depois** do `COMMIT` da bronze e o processo morresse entre
@@ -127,3 +150,6 @@ BLOCK sobe no fim do lote. Você descobre o problema sem perder a carga do resto
 3. Por que o Polars sozinho não basta para garantir que nenhuma linha quebrada entre na bronze?
 4. Por que guardamos todas as versões no landing em vez de sobrescrever?
 5. Onde a sobreposição semestral × mensal × semanal deve ser resolvida, e com qual prioridade?
+6. Por que o perfil dos lotes é gravado na mesma transação da carga, e não por um job separado depois?
+7. O que `GROUPING SETS ((batch_month, produto), (batch_month))` produz que dois `GROUP BY` separados também
+   produziriam, e por que uma passada só é melhor aqui?

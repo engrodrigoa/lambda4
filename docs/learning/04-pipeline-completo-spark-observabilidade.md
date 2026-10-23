@@ -277,7 +277,7 @@ Isso equivale aos *golden signals* adaptados a batch:
 - 95% das execuções mensais com sucesso;
 - dados da gold atualizados até 3 dias após a publicação da Receita.
 
-### 5.4 Os dashboards (pasta "Lambda4 · RFB" no Grafana)
+### 5.4 Os dashboards (pasta "Lambda4" (antes "Lambda4 · RFB") no Grafana)
 1. **RFB · Pipeline health & tracing** (escolha o `run_id` no topo):
    - visão da execução (status, mês, duração, tasks com falha, linhas escritas, checks, quarentena);
    - trace (execução → tasks → etapas);
@@ -350,7 +350,7 @@ sudo systemctl start seaweedfs spark-master spark-worker spark-history loki allo
    - **despause** a `rfb_pipeline`;
    - use **Trigger DAG** com `{"ref_month": "2026-09"}`;
    - acompanhe pela Grid; clique numa task para ver o log ao vivo.
-3. **No Grafana** (`localhost:3000`), pasta "Lambda4 · RFB":
+3. **No Grafana** (`localhost:3000`), pasta "Lambda4" (antes "Lambda4 · RFB"):
    - *Pipeline health*: o run novo aparece no seletor; atualiza a cada 30 s;
    - *Airflow*: pools e fila;
    - *Logs*: avisos.

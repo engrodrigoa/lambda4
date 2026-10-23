@@ -130,6 +130,66 @@ CREATE TABLE IF NOT EXISTS anp_bronze.precos_quarantine (
 CREATE INDEX IF NOT EXISTS precos_quarantine_file_idx ON anp_bronze.precos_quarantine (_file_key);
 COMMENT ON TABLE anp_bronze.precos_quarantine IS 'records the bronze loader refused, kept raw with the reason';
 
+-- ---------------------------------------------------------------- anp_bronze.batch_profile: survey batch statistics
+-- A survey batch ("lote de pesquisa") = one source file x one collection month (YYYYMM of data_da_coleta): a monthly
+-- file is one batch, a semester file six. Computed by anp03_bronze from the rows it just loaded, in the SAME
+-- transaction (replaced on reload), so Grafana reads a few rows per file instead of scanning precos_raw.
+-- produto = '*' is the whole batch (all products). Prices parsed from the raw text ('2,899'); unparseable -> missing.
+CREATE TABLE IF NOT EXISTS anp_bronze.batch_profile (
+    file_key        text        NOT NULL,              -- -> ctrl.source_file
+    file_sha256     text        NOT NULL,
+    source_kind     text        NOT NULL,
+    product_group   text        NOT NULL,
+    batch_month     int         NOT NULL,              -- YYYYMM of the collection date; 0 = date not parseable
+    produto         text        NOT NULL,              -- upper(trim(produto)), '*' = all products
+    rows            bigint      NOT NULL,
+    stations        bigint      NOT NULL,              -- distinct CNPJ (digits only)
+    brands          bigint      NOT NULL,              -- distinct bandeira
+    cities          bigint      NOT NULL,              -- distinct municipio/UF
+    ufs             bigint      NOT NULL,
+    price_avg       numeric,                           -- valor_de_venda (GLP: per 13 kg bottle)
+    price_min       numeric,
+    price_p50       numeric,
+    price_max       numeric,
+    price_stddev    numeric,
+    price_missing   bigint      NOT NULL,              -- empty or not a number
+    buy_price_avg   numeric,                           -- valor_de_compra (mostly empty)
+    run_id          text        NOT NULL,
+    profiled_at     timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (file_key, batch_month, produto)
+);
+COMMENT ON TABLE anp_bronze.batch_profile IS 'statistics per survey batch (file x collection month) and product, '
+    'computed at bronze load time; produto = ''*'' is the whole batch';
+
+-- one row per survey batch, average sale price of each product in columns (the Grafana matrix)
+CREATE OR REPLACE VIEW anp_bronze.v_batch_matrix AS
+SELECT CASE WHEN batch_month = 0 THEN 'no date'
+            ELSE left(batch_month::text, 4) || '-' || right(batch_month::text, 2) END       AS batch,
+       batch_month,
+       file_key,
+       source_kind,
+       product_group,
+       max(rows)          FILTER (WHERE produto = '*')                   AS rows,
+       max(stations)      FILTER (WHERE produto = '*')                   AS stations,
+       max(brands)        FILTER (WHERE produto = '*')                   AS brands,
+       max(cities)        FILTER (WHERE produto = '*')                   AS cities,
+       max(ufs)           FILTER (WHERE produto = '*')                   AS ufs,
+       max(price_avg)     FILTER (WHERE produto = 'GASOLINA')            AS gasolina,
+       max(price_avg)     FILTER (WHERE produto = 'GASOLINA ADITIVADA')  AS gasolina_aditivada,
+       max(price_avg)     FILTER (WHERE produto = 'ETANOL')              AS etanol,
+       max(price_avg)     FILTER (WHERE produto = 'DIESEL')              AS diesel,
+       max(price_avg)     FILTER (WHERE produto = 'DIESEL S10')          AS diesel_s10,
+       max(price_avg)     FILTER (WHERE produto = 'DIESEL S50')          AS diesel_s50,
+       max(price_avg)     FILTER (WHERE produto = 'GNV')                 AS gnv,
+       max(price_avg)     FILTER (WHERE produto = 'GLP')                 AS glp,
+       coalesce(sum(rows) FILTER (WHERE produto NOT IN ('*', 'GASOLINA', 'GASOLINA ADITIVADA', 'ETANOL', 'DIESEL',
+                                                        'DIESEL S10', 'DIESEL S50', 'GNV', 'GLP')), 0) AS other_product_rows,
+       max(price_missing) FILTER (WHERE produto = '*')                   AS price_missing,
+       max(profiled_at)                                                  AS profiled_at
+FROM anp_bronze.batch_profile
+GROUP BY batch_month, file_key, source_kind, product_group;
+COMMENT ON VIEW anp_bronze.v_batch_matrix IS 'one row per survey batch, average sale price per product in columns';
+
 -- ---------------------------------------------------------------- read-only access (Grafana, owner's DBeaver)
 GRANT USAGE ON SCHEMA ctrl, anp_bronze TO grafana_ro, dbeaver_ro;
 GRANT SELECT ON ALL TABLES IN SCHEMA ctrl, anp_bronze TO grafana_ro, dbeaver_ro;

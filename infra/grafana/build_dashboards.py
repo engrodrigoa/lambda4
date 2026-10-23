@@ -1,10 +1,10 @@
-"""Dashboards as code: generates the Grafana JSON for the lambda4 / RFB pipeline.
+"""Dashboards as code: generates the Grafana JSON for the lambda4 pipelines (RFB and ANP).
 
     python infra/grafana/build_dashboards.py          # writes infra/grafana/dashboards/*.json
     infra/grafana/install.sh                          # copies them to Grafana's provisioning folder
 
-Data sources (provisioned by the lab): prometheus, loki, tempo, pg-lambda (audit schema), pg-airflow (Airflow
-metadata DB).
+Data sources (provisioned by the lab): prometheus, loki, tempo, pg-lambda (audit, ctrl and anp_bronze schemas),
+pg-airflow (Airflow metadata DB).
 Every query here is also executed by infra/grafana/validate_dashboards.py against the live sources.
 """
 from __future__ import annotations
@@ -462,10 +462,250 @@ def logs_board() -> dict:
     return b.json()
 
 
+# ----------------------------------------------------------------------------------------------- 4. ANP
+ANP_DAG = "'anp_pipeline'"
+ANP_RUN_VAR = {**RUN_VAR, "query": "SELECT run_id FROM audit.pipeline_run WHERE pipeline = 'anp' "
+                                   "ORDER BY started_at DESC LIMIT 100"}
+ANP_RUN_VAR["definition"] = ANP_RUN_VAR["query"]
+KIND_VAR = {"name": "kind", "label": "File kind", "type": "custom", "query": "semestral,mensal,semanal",
+            "includeAll": True, "multi": True, "current": {"text": "All", "value": "$__all"},
+            "options": [{"text": v, "value": v, "selected": False} for v in ("semestral", "mensal", "semanal")]}
+PRODUCT_VAR = {"name": "product", "label": "Product", "type": "query", "datasource": PG, "refresh": 1, "sort": 1,
+               "query": "SELECT DISTINCT produto FROM anp_bronze.batch_profile WHERE produto NOT IN ('*', 'GLP')",
+               "definition": "SELECT DISTINCT produto FROM anp_bronze.batch_profile WHERE produto NOT IN ('*', 'GLP')",
+               "includeAll": True, "multi": True, "current": {"text": "All", "value": "$__all"}}
+KINDS = "source_kind IN (${kind:singlequote})"
+# one value per month and product when several files cover it: the most consolidated source wins (as in silver)
+SOURCE_RANK = "CASE source_kind WHEN 'semestral' THEN 1 WHEN 'mensal' THEN 2 ELSE 3 END"
+BATCH_TIME = "to_date(batch_month::text, 'YYYYMM')::timestamp"
+HISTORY = "25y"                      # survey panels show the whole history whatever the dashboard time range
+PRODUCT_COLS = ("gasolina", "gasolina_aditivada", "etanol", "diesel", "diesel_s10", "diesel_s50", "gnv", "glp")
+
+
+def history(panel: dict) -> dict:
+    panel["timeFrom"] = HISTORY
+    return panel
+
+
+def anp_runs_annotation() -> dict:
+    return {"name": "ANP runs", "enable": True, "iconColor": "#8AB8FF", "datasource": PG,
+            "target": sql("""SELECT started_at AS time, coalesce(finished_at, now()) AS timeend,
+                             'anp ' || status AS text, status AS tags
+                             FROM audit.pipeline_run WHERE pipeline = 'anp' AND $__timeFilter(started_at)""")}
+
+
+def anp_board() -> dict:
+    b = Board("lambda4-anp", "ANP · Pipeline health & survey batches",
+              "ANP fuel price survey. Section 1: pipeline health (tasks, source files control, Airflow, logs). "
+              "Section 2: statistical pre-assessment of every survey batch (file x collection month) from "
+              "anp_bronze.batch_profile.", ["lambda4", "anp"], time_from="now-7d")
+    b.vars.extend([ANP_RUN_VAR, TRACE_VAR, KIND_VAR, PRODUCT_VAR])
+    b.annotations.append(anp_runs_annotation())
+    R = "'$run_id'"
+
+    # ======================================================================================= 1. pipeline health
+    b.row("1 · Pipeline health — run $run_id")
+    b.add(stat("Status", sql(f"SELECT status FROM audit.pipeline_run WHERE run_id = {R}"), mappings=status_mappings(),
+               color_mode="background", text_mode="value"), 3, 4)
+    b.add(stat("Duration", sql(f"SELECT extract(epoch FROM coalesce(finished_at, now()) - started_at) "
+                               f"FROM audit.pipeline_run WHERE run_id = {R}"), unit="s"), 3, 4)
+    b.add(stat("Tasks failed", sql(f"SELECT count(*) FROM (SELECT DISTINCT ON (task_id) status FROM audit.task_run "
+                                   f"WHERE run_id = {R} ORDER BY task_id, attempt DESC) t WHERE status = 'FAILED'"),
+               thresholds=red_if_positive(), color_mode="background"), 3, 4)
+    b.add(stat("Files downloaded", sql(f"SELECT coalesce(sum(files_ok), 0) FROM audit.task_run WHERE run_id = {R} "
+                                       "AND task_id = 'anp02_download'")), 3, 4)
+    b.add(stat("Downloaded", sql(f"SELECT coalesce(sum(bytes_out), 0) FROM audit.task_run WHERE run_id = {R} "
+                                 "AND task_id = 'anp02_download'"), unit="bytes"), 3, 4)
+    b.add(stat("Rows loaded (bronze)", sql(f"SELECT coalesce(sum(rows_out), 0) FROM audit.task_run "
+                                           f"WHERE run_id = {R} AND layer = 'bronze'")), 3, 4)
+    b.add(stat("DQ BLOCK / WARN fails",
+               sql(f"SELECT count(*) FILTER (WHERE severity = 'BLOCK') AS block, "
+                   f"count(*) FILTER (WHERE severity = 'WARN') AS warn FROM audit.dq_event "
+                   f"WHERE run_id = {R} AND status = 'FAIL'"), thresholds=orange_if_positive(),
+               color_mode="background"), 3, 4)
+    b.add(stat("Rows quarantined", sql(f"SELECT coalesce(sum(rows_rejected), 0) FROM audit.task_run "
+                                       f"WHERE run_id = {R}"), thresholds=orange_if_positive()), 3, 4)
+    b.add(table("Tasks of the run", sql(
+        f"""SELECT task_id, attempt, status, started_at, round(duration_s) AS duration_s, files_total, files_ok,
+            files_failed, files_skipped, rows_in, rows_out, rows_rejected, bytes_out, warn_count, block_count,
+            airflow_task_id, error_class, left(error_message, 200) AS error
+            FROM audit.task_run WHERE run_id = {R} ORDER BY started_at"""),
+        status_cols=("status",), units={"duration_s": "s", "bytes_out": "bytes", "started_at": "dateTimeAsIso"}),
+        16, 8)
+    b.add(barchart("Task duration in this run", sql(
+        f"""SELECT task_id || CASE WHEN attempt > 1 THEN ' #' || attempt ELSE '' END AS task,
+            round(coalesce(duration_s, extract(epoch FROM now() - started_at))) AS seconds
+            FROM audit.task_run WHERE run_id = {R} ORDER BY started_at"""), unit="s", x_field="task"), 8, 8)
+    b.add(table("Checks of the run", sql(f"""SELECT created_at, task_id, check_name, severity, status, observed,
+        threshold, left(message, 300) AS message FROM audit.dq_event WHERE run_id = {R}
+        ORDER BY (status = 'FAIL') DESC, created_at"""),
+        status_cols=("status", "severity"), units={"created_at": "dateTimeAsIso"}), 16, 9)
+    b.add(table("Preflight health checks", sql(f"""SELECT component, status, latency_ms, detail::text AS detail
+        FROM audit.health_check WHERE run_id = {R} ORDER BY component"""), status_cols=("status",),
+        units={"latency_ms": "ms"}), 8, 9)
+    b.add(traces("Trace of the run (audit SQL, works without Tempo)", sql(f"""SELECT "traceID", "spanID",
+                 "parentSpanID", "operationName", "serviceName", "startTime", duration FROM audit.v_trace_spans
+                 WHERE run_id = {R} ORDER BY "startTime" """),
+                 desc="Same ids as the Tempo trace (md5(run_id)); with Tempo running, Explore → Tempo → "
+                      '{resource.service.name="lambda-anp"} shows the full spans.'), 24, 9)
+
+    b.row("1 · Pipeline health — source files (ctrl)")
+    files = "FROM ctrl.source_file WHERE pipeline = 'anp'"
+    b.add(stat("Files known", sql(f"SELECT count(*) {files}")), 4, 4)
+    b.add(stat("Downloaded", sql(f"SELECT count(*) {files} AND download_status = 'DOWNLOADED'")), 4, 4)
+    b.add(stat("Loaded in bronze", sql(f"SELECT count(*) {files} AND bronze_status = 'LOADED'")), 4, 4)
+    b.add(stat("Pending (download or bronze)", sql(
+        f"SELECT count(*) {files} AND ((listed AND download_status = 'PENDING') OR "
+        "(download_status = 'DOWNLOADED' AND bronze_status = 'PENDING'))"), thresholds=orange_if_positive()), 4, 4)
+    b.add(stat("Failed / missing at source", sql(
+        f"SELECT count(*) {files} AND (download_status IN ('FAILED', 'MISSING_AT_SOURCE') "
+        "OR bronze_status = 'FAILED')"), thresholds=red_if_positive(), color_mode="background"), 4, 4)
+    b.add(stat("Landing size", sql(f"SELECT coalesce(sum(local_bytes), 0) {files}"), unit="bytes"), 4, 4)
+    b.add(table("Files by kind and state", sql(f"""SELECT source_kind, product_group, download_status, bronze_status,
+        count(*) AS files, sum(local_bytes) AS bytes, sum(bronze_rows) AS rows, sum(bronze_quarantined) AS quarantined,
+        min(period_start) AS from_period, max(period_end) AS to_period, max(loaded_at) AS last_load {files}
+        GROUP BY 1, 2, 3, 4 ORDER BY 1, 2, 3, 4"""), status_cols=("download_status", "bronze_status"),
+        units={"bytes": "bytes", "last_load": "dateTimeAsIso"},
+        overrides=[{"matcher": {"id": "byRegexp", "options": "download_status|bronze_status"},
+                    "properties": [{"id": "mappings", "value": [{"type": "value", "options": {
+                        "DOWNLOADED": {"color": "green", "index": 0}, "LOADED": {"color": "green", "index": 1},
+                        "PENDING": {"color": "blue", "index": 2}, "FAILED": {"color": "red", "index": 3},
+                        "MISSING_AT_SOURCE": {"color": "orange", "index": 4},
+                        "SKIPPED_DUPLICATE": {"color": "text", "index": 5}}}]}]}]), 12, 9)
+    b.add(table("Files needing attention", sql(f"""SELECT file_key, download_status, bronze_status, listed,
+        download_attempts, left(last_error, 200) AS last_error, url, updated_at {files}
+        AND (download_status IN ('FAILED', 'MISSING_AT_SOURCE') OR bronze_status = 'FAILED' OR NOT listed
+             OR (listed AND download_status = 'PENDING') OR duplicate_of IS NOT NULL)
+        ORDER BY updated_at DESC LIMIT 200"""), status_cols=("download_status", "bronze_status"),
+        units={"updated_at": "dateTimeAsIso"},
+        desc="Failed or missing downloads/loads, files no longer linked from the page, pending ones and duplicates."),
+        12, 9)
+    b.add(timeseries("Control events per day", [sql("""SELECT $__timeGroupAlias(created_at, '1d'),
+        event AS metric, count(*) AS value FROM ctrl.source_file_event WHERE pipeline = 'anp'
+        AND $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1""", fmt="time_series")], draw="bars", stack=True,
+        desc="DISCOVERED, DOWNLOADED, LOADED, CHANGED_AT_SOURCE, ... (ctrl.source_file_event)."), 10, 9)
+    b.add(table("Recent control events", sql("""SELECT created_at, file_key, event, version, bytes, rows,
+        left(detail::text, 300) AS detail, run_id FROM ctrl.source_file_event WHERE pipeline = 'anp'
+        AND $__timeFilter(created_at) ORDER BY id DESC LIMIT 300"""),
+        units={"created_at": "dateTimeAsIso", "bytes": "bytes"}), 14, 9)
+
+    b.row("1 · Pipeline health — Airflow (anp_pipeline) and logs")
+    b.add(table("anp_pipeline runs", sql(f"""SELECT run_id, state, run_type, queued_at, start_date, end_date,
+        round(extract(epoch FROM coalesce(end_date, now()) - start_date)) AS duration_s, conf::text AS conf
+        FROM dag_run WHERE dag_id = {ANP_DAG} ORDER BY coalesce(start_date, queued_at) DESC LIMIT 30""", ds=AF),
+        status_cols=("state",), units={"duration_s": "s", "queued_at": "dateTimeAsIso",
+                                       "start_date": "dateTimeAsIso", "end_date": "dateTimeAsIso"}), 12, 8)
+    latest_run = (f"(SELECT run_id FROM dag_run WHERE dag_id = {ANP_DAG} "
+                  "ORDER BY coalesce(start_date, queued_at) DESC LIMIT 1)")
+    b.add(table("Task instances of the latest Airflow run", sql(f"""SELECT task_id, state, try_number, start_date,
+        end_date, round(duration::numeric) AS duration_s, hostname FROM task_instance WHERE dag_id = {ANP_DAG}
+        AND run_id = {latest_run} ORDER BY start_date NULLS LAST""", ds=AF), status_cols=("state",),
+        units={"duration_s": "s", "start_date": "dateTimeAsIso", "end_date": "dateTimeAsIso"}), 12, 8)
+    b.add(timeseries("Airflow task log lines by level", [loki(
+        'sum by (level) (count_over_time({job="airflow-tasks", dag_id="anp_pipeline"} [$__auto]))', "{{level}}")],
+        draw="bars", stack=True), 12, 7)
+    b.add(timeseries("Pipeline events by level", [loki(
+        'sum by (level) (count_over_time({job="lambda-pipelines", pipeline="anp"} [$__auto]))', "{{level}}")],
+        draw="bars", stack=True), 12, 7)
+    b.add(logs("Airflow task logs (anp_pipeline)", '{job="airflow-tasks", dag_id="anp_pipeline"}',
+               desc="Exactly what the Airflow UI shows per task attempt (stdout of the scripts included)."), 12, 12)
+    b.add(table("Pipeline warnings and errors (audit.log_event)", sql("""SELECT ts, level, task_id, event,
+        left(message, 300) AS message FROM audit.log_event WHERE pipeline = 'anp'
+        AND level IN ('WARNING', 'ERROR', 'CRITICAL') AND $__timeFilter(ts) ORDER BY ts DESC LIMIT 300"""),
+        units={"ts": "dateTimeAsIso"}), 12, 12)
+
+    # ======================================================================================= 2. survey batches
+    b.row("2 · Survey batches (lotes de pesquisa) — statistical pre-assessment")
+    b.add(text("How to read", """A **survey batch** (*lote de pesquisa*) is one source file × one collection month
+(`YYYY-MM` of *data da coleta*): a monthly file is one batch, a semester file six, a weekly file one or two.
+Statistics are computed at bronze load time (`anp_bronze.batch_profile`, raw text parsed only here: prices with a
+decimal comma, dates `dd/mm/yyyy`). Since 2023 the same month exists in a semester, a monthly and weekly files:
+compare them here; silver keeps one (semestral > mensal > semanal). **GLP** is priced per 13 kg bottle, the others
+per litre (GNV per m³). Filter by *File kind* and *Product* at the top."""), 24, 4)
+    matrix = sql(f"""SELECT batch, file_key, source_kind, rows, stations, brands, cities, ufs,
+        {', '.join(PRODUCT_COLS)}, other_product_rows, price_missing FROM anp_bronze.v_batch_matrix
+        WHERE {KINDS} ORDER BY batch_month DESC, {SOURCE_RANK}, file_key""")
+    price_ov = [{"matcher": {"id": "byName", "options": c},
+                 "properties": [{"id": "unit", "value": "currencyBRL"}, {"id": "decimals", "value": 3}]}
+                for c in PRODUCT_COLS]
+    b.add(table("Batch matrix — average sale price per product, stations (CNPJ) and brands per batch", matrix,
+                desc="One row per survey batch. Price columns = average valor_de_venda of the product in the batch "
+                     "(empty = product not surveyed in that file). stations = distinct CNPJ surveyed, brands = "
+                     "distinct bandeiras, price_missing = rows without a parseable price.",
+                overrides=price_ov + [{"matcher": {"id": "byName", "options": "price_missing"},
+                                       "properties": [{"id": "custom.cellOptions", "value": {"type": "color-text"}},
+                                                      {"id": "color", "value": {"mode": "thresholds"}},
+                                                      {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                                                          {"color": "green", "value": None},
+                                                          {"color": "orange", "value": 1}]}}]}]), 24, 14)
+    b.add(stat("Survey batches", sql(f"SELECT count(*) FROM anp_bronze.v_batch_matrix WHERE {KINDS}")), 6, 4)
+    b.add(stat("Months covered", sql(f"""SELECT count(DISTINCT batch_month) FROM anp_bronze.batch_profile
+        WHERE batch_month > 0 AND {KINDS}""")), 6, 4)
+    b.add(stat("First → last month", sql(f"""SELECT min(batch) || ' → ' || max(batch) FROM anp_bronze.v_batch_matrix
+        WHERE batch_month > 0 AND {KINDS}"""), text_mode="value"), 6, 4)
+    b.add(stat("Rows without a parseable price", sql(f"""SELECT coalesce(sum(price_missing), 0)
+        FROM anp_bronze.batch_profile WHERE produto = '*' AND {KINDS}"""), thresholds=orange_if_positive()), 6, 4)
+
+    price_series = f"""SELECT time, produto AS metric, price_avg AS value FROM (
+        SELECT DISTINCT ON (batch_month, produto) {BATCH_TIME} AS time, batch_month, produto, price_avg
+        FROM anp_bronze.batch_profile WHERE batch_month > 0 AND {KINDS} AND produto {{filter}}
+        ORDER BY batch_month, produto, {SOURCE_RANK}, profiled_at DESC) t ORDER BY 1"""
+    b.add(history(timeseries("Average sale price per month — fuels (R$/l, GNV R$/m³)", [sql(
+        price_series.replace("{filter}", "IN (${product:singlequote})"), fmt="time_series")],
+        unit="currencyBRL", min0=False,
+        desc="One point per month and product; when several files cover a month the most consolidated source wins "
+             "(semestral > mensal > semanal).")), 16, 9)
+    b.add(history(timeseries("Average GLP P13 price per month (R$/13 kg)", [sql(
+        price_series.replace("{filter}", "= 'GLP'"), fmt="time_series")], unit="currencyBRL", min0=False)), 8, 9)
+    whole = f"FROM anp_bronze.batch_profile WHERE produto = '*' AND batch_month > 0 AND {KINDS}"
+    family = "source_kind || ' ' || product_group"
+    b.add(history(timeseries("Stations surveyed (distinct CNPJ) per batch", [sql(
+        f"SELECT {BATCH_TIME} AS time, {family} AS metric, stations AS value {whole} ORDER BY 1",
+        fmt="time_series")], draw="points", points="always",
+        desc="Per file family: overlapping files of the same month should survey a similar number of stations.")),
+        12, 8)
+    b.add(history(timeseries("Brands (bandeiras) per batch", [sql(
+        f"SELECT {BATCH_TIME} AS time, {family} AS metric, brands AS value {whole} ORDER BY 1",
+        fmt="time_series")], draw="points", points="always")), 12, 8)
+    b.add(history(timeseries("Collections (rows) per batch", [sql(
+        f"SELECT {BATCH_TIME} AS time, {family} AS metric, rows AS value {whole} ORDER BY 1",
+        fmt="time_series")], draw="bars")), 12, 8)
+    b.add(history(timeseries("Cities and UFs per batch", [
+        sql(f"SELECT {BATCH_TIME} AS time, {family} || ' cities' AS metric, cities AS value {whole} ORDER BY 1",
+            fmt="time_series"),
+        sql(f"SELECT {BATCH_TIME} AS time, {family} || ' UFs' AS metric, ufs AS value {whole} ORDER BY 1",
+            fmt="time_series", ref="B")], draw="points", points="always")), 12, 8)
+    b.add(table("Price dispersion per batch and product", sql(f"""SELECT left(batch_month::text, 4) || '-' ||
+        right(batch_month::text, 2) AS batch, file_key, produto, rows, stations, price_min, price_p50, price_avg,
+        price_max, price_stddev, round(100 * price_stddev / nullif(price_avg, 0), 1) AS cv_pct, price_missing,
+        buy_price_avg FROM anp_bronze.batch_profile WHERE produto <> '*' AND batch_month > 0 AND {KINDS}
+        AND produto IN (${{product:singlequote}}, 'GLP') ORDER BY batch_month DESC, produto, {SOURCE_RANK}"""),
+        desc="min / median / average / max sale price, standard deviation and coefficient of variation (cv %) of "
+             "every product in every batch. A cv far from its neighbours or min/max outliers point to typing errors "
+             "at the source.",
+        overrides=[{"matcher": {"id": "byRegexp", "options": "price_.*|buy_price_avg"},
+                    "properties": [{"id": "decimals", "value": 3}]},
+                   {"matcher": {"id": "byName", "options": "price_missing"},
+                    "properties": [{"id": "decimals", "value": 0}]}]), 24, 12)
+    b.add(table("Data quality per file", sql(f"""SELECT s.file_key, s.source_kind, s.bronze_rows AS rows,
+        s.bronze_quarantined AS quarantined, p.batches, p.no_date_rows, p.price_missing, p.other_product_rows,
+        s.version, s.loaded_at FROM ctrl.source_file s LEFT JOIN (
+            SELECT file_key, count(*) FILTER (WHERE batch_month > 0) AS batches,
+                   coalesce(sum(rows) FILTER (WHERE batch_month = 0), 0) AS no_date_rows,
+                   sum(price_missing) AS price_missing, sum(other_product_rows) AS other_product_rows
+            FROM anp_bronze.v_batch_matrix GROUP BY file_key) p ON p.file_key = s.file_key
+        WHERE s.pipeline = 'anp' AND s.bronze_status = 'LOADED' AND s.{KINDS}
+        ORDER BY (coalesce(s.bronze_quarantined, 0) + coalesce(p.no_date_rows, 0) + coalesce(p.price_missing, 0)) DESC,
+        s.file_key"""),
+        desc="Quarantined records (wrong field count), rows whose date did not parse (batch 'no date'), rows without "
+             "a price, rows of products outside the matrix columns.", units={"loaded_at": "dateTimeAsIso"}), 24, 9)
+    return b.json()
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for name, board in (("lambda4-rfb-health", pipeline_health()), ("lambda4-airflow", airflow_board()),
-                        ("lambda4-logs", logs_board())):
+                        ("lambda4-logs", logs_board()), ("lambda4-anp", anp_board())):
         (OUT / f"{name}.json").write_text(json.dumps(board, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"wrote {OUT / name}.json ({len(board['panels'])} panels)")
 

@@ -2,6 +2,7 @@
 
     python -m pipelines.anp.anp03_bronze
     python -m pipelines.anp.anp03_bronze --kinds semanal --limit 3
+    python -m pipelines.anp.anp03_bronze --reprofile          # only recompute anp_bronze.batch_profile
 
 Behaviour
 * Loads files that anp02 left DOWNLOADED with bronze PENDING/FAILED, oldest kind first (semestral, mensal, semanal).
@@ -12,7 +13,9 @@ Behaviour
 * Records with the wrong number of fields go to anp_bronze.precos_quarantine (never dropped silently) and are
   counted in audit.quarantine_summary.
 * Idempotent: ONE transaction per file deletes the rows of that file_key (previous version included), COPYs the new
-  rows and quarantine, and marks ctrl.source_file LOADED. Either everything is committed or nothing is.
+  rows and quarantine, computes the survey batch statistics (anp_bronze.batch_profile: per collection month and
+  product, read by the Grafana dashboard) and marks ctrl.source_file LOADED. Either everything is committed or
+  nothing is.
 
 Exit codes: 0 loaded (failed files are retried on the next run, WARN) | 99 nothing to load | 1 a BLOCK check failed
 (contract columns missing, file without rows, rows written != rows read) or nothing could be loaded.
@@ -48,6 +51,38 @@ VERSION_DEVIATION_MAX = 0.20            # bronze.rows_vs_previous_version thresh
 OUTSIDE_PERIOD_MAX = 0.01               # bronze.dates_outside_period threshold (share of rows)
 PERIOD_SLACK = timedelta(days=7)        # collection weeks straddle month/semester borders
 SAMPLE_LINES = 3
+PROFILE_TABLE = "anp_bronze.batch_profile"
+
+# Survey batch statistics (one row per collection month x product, plus produto '*' = the whole batch), computed by
+# Postgres from the rows of ONE file just written, inside the load transaction. Values are parsed from the raw text
+# only here, for profiling: bronze itself stays as published.
+PROFILE_SQL = r"""
+INSERT INTO anp_bronze.batch_profile (file_key, file_sha256, source_kind, product_group, batch_month, produto, rows,
+    stations, brands, cities, ufs, price_avg, price_min, price_p50, price_max, price_stddev, price_missing,
+    buy_price_avg, run_id, profiled_at)
+SELECT %(file_key)s, %(sha256)s, %(source_kind)s, %(product_group)s, batch_month,
+       CASE WHEN GROUPING(produto) = 1 THEN '*' ELSE coalesce(produto, '(empty)') END,
+       count(*), count(DISTINCT cnpj), count(DISTINCT brand), count(DISTINCT city), count(DISTINCT uf),
+       round(avg(price), 4), min(price), round(percentile_cont(0.5) WITHIN GROUP (ORDER BY price)::numeric, 4),
+       max(price), round(stddev_samp(price), 4), count(*) FILTER (WHERE price IS NULL), round(avg(buy), 4),
+       %(run_id)s, now()
+FROM (
+    SELECT CASE WHEN data_da_coleta ~ '^\d{2}/\d{2}/\d{4}$'
+                THEN (substr(data_da_coleta, 7, 4) || substr(data_da_coleta, 4, 2))::int ELSE 0 END  AS batch_month,
+           nullif(upper(trim(produto)), '')                                                         AS produto,
+           nullif(regexp_replace(cnpj_da_revenda, '\D', '', 'g'), '')                              AS cnpj,
+           nullif(upper(trim(bandeira)), '')                                                        AS brand,
+           upper(trim(municipio)) || '/' || upper(trim(estado_sigla))                               AS city,
+           nullif(upper(trim(estado_sigla)), '')                                                    AS uf,
+           CASE WHEN trim(valor_de_venda) ~ '^[0-9]+([.,][0-9]+)?$'
+                THEN replace(trim(valor_de_venda), ',', '.')::numeric END                           AS price,
+           CASE WHEN trim(valor_de_compra) ~ '^[0-9]+([.,][0-9]+)?$'
+                THEN replace(trim(valor_de_compra), ',', '.')::numeric END                          AS buy
+    FROM anp_bronze.precos_raw
+    WHERE _source_kind = %(source_kind)s AND _file_key = %(file_key)s
+) r
+GROUP BY GROUPING SETS ((batch_month, produto), (batch_month))
+"""
 
 
 class FileRefused(Exception):
@@ -56,6 +91,15 @@ class FileRefused(Exception):
     def __init__(self, check: str, message: str):
         super().__init__(message)
         self.check = check
+
+
+def write_profile(cur, row: dict[str, Any], run_id: str) -> int:
+    """Replace the survey batch statistics of one file (caller's transaction). Returns the number of batches."""
+    cur.execute(f"DELETE FROM {PROFILE_TABLE} WHERE file_key = %s", (row["file_key"],))
+    cur.execute(PROFILE_SQL, {"file_key": row["file_key"], "sha256": row["sha256"], "source_kind": row["source_kind"],
+                              "product_group": row["product_group"], "run_id": run_id})
+    cur.execute(f"SELECT count(*) FROM {PROFILE_TABLE} WHERE file_key = %s AND produto = '*'", (row["file_key"],))
+    return cur.fetchone()[0]
 
 
 def pending_files(state: dict[str, dict[str, Any]], kinds: tuple[str, ...], limit: int) -> list[dict[str, Any]]:
@@ -142,10 +186,14 @@ def load_file(task: TaskRun, conn, ctrl: FileCtrl, row: dict[str, Any], scratch:
             task.check("bronze.rows_match_source", written + quarantined == read.records,
                        observed=written + quarantined, threshold=read.records,
                        message=f"{key}: rows written + quarantined vs records read", file_key=key)
+            t_profile = time.monotonic()
+            batches = write_profile(cur, row, task.ctx.run_id)
+            t_profile = time.monotonic() - t_profile
             ctrl.save([loaded], cur=cur)
             ctrl.add_events([file_ctrl.event(PIPELINE, key, "LOADED", run_id=task.ctx.run_id, task_id=TASK_ID,
                                              version=row["version"], bytes=row["local_bytes"], sha256=row["sha256"],
                                              rows=written, detail={"quarantined": quarantined, "replaced": replaced,
+                                                                   "batches": batches,
                                                                    "encoding": read.encoding, "reader": read.path,
                                                                    **stats})], cur=cur)
         t_load = time.monotonic() - t1
@@ -179,7 +227,7 @@ def load_file(task: TaskRun, conn, ctrl: FileCtrl, row: dict[str, Any], scratch:
     log_event(task.log, "file_loaded", f"{key}: {written:,} rows (+{quarantined} quarantined, {replaced:,} replaced) "
                                        f"in {seconds:.1f}s", file_key=key, rows=written, quarantined=quarantined,
               replaced=replaced, encoding=read.encoding, reader=read.path, read_s=round(t_read, 2),
-              load_s=round(t_load, 2), seconds=round(seconds, 2),
+              load_s=round(t_load, 2), profile_s=round(t_profile, 2), batches=batches, seconds=round(seconds, 2),
               rows_per_s=round(written / seconds) if seconds else None, version=row["version"], **stats)
     return stats
 
@@ -233,11 +281,34 @@ def load_files(task: TaskRun, *, conn, ctrl: FileCtrl, scratch: Path, kinds: tup
         raise RuntimeError(f"no file could be loaded ({len(failed)} failed)")
 
 
+def reprofile_files(task: TaskRun, *, conn, ctrl: FileCtrl, kinds: tuple[str, ...] = SOURCE_KINDS,
+                    limit: int = 0) -> None:
+    """Recompute anp_bronze.batch_profile for files already in bronze (after a change of PROFILE_SQL, or for files
+    loaded before the profile existed). Data is not touched; one transaction per file."""
+    rows = [r for r in ctrl.load(PIPELINE).values() if r["bronze_status"] == "LOADED" and r["source_kind"] in kinds]
+    rows.sort(key=lambda r: (SOURCE_KINDS.index(r["source_kind"]), r["period_start"], r["file_key"]))
+    rows = rows[:limit] if limit else rows
+    task.set(files_total=len(rows))
+    if not rows:
+        raise TaskSkipped("no loaded file to profile")
+    for row in rows:
+        t0 = time.monotonic()
+        # bronze holds the content of bronze_sha256 (sha256 may already point to a newer, not yet loaded download)
+        current = {**row, "sha256": row["bronze_sha256"] or row["sha256"]}
+        with conn.transaction(), conn.cursor() as cur:
+            batches = write_profile(cur, current, task.ctx.run_id)
+        task.add(files_ok=1)
+        log_event(task.log, "file_profiled", f"{row['file_key']}: {batches} survey batch(es) profiled",
+                  file_key=row["file_key"], batches=batches, seconds=round(time.monotonic() - t0, 2))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--kinds", default=",".join(SOURCE_KINDS),
                         help=f"comma separated subset of {','.join(SOURCE_KINDS)} (default: all)")
     parser.add_argument("--limit", type=int, default=0, help="load at most N files (0 = all)")
+    parser.add_argument("--reprofile", action="store_true",
+                        help="only recompute anp_bronze.batch_profile of the files already loaded (no data change)")
     args = parser.parse_args(argv)
     kinds = tuple(k.strip() for k in args.kinds.split(",") if k.strip())
     if not set(kinds) <= set(SOURCE_KINDS):
@@ -246,10 +317,14 @@ def main(argv: list[str] | None = None) -> int:
     def body(task: TaskRun) -> None:
         scratch = get_settings().scratch_dir / "anp-extract"
         with pg.connect() as conn:
-            load_files(task, conn=conn, ctrl=PgFileCtrl(conn), scratch=scratch, kinds=kinds, limit=args.limit)
+            if args.reprofile:
+                reprofile_files(task, conn=conn, ctrl=PgFileCtrl(conn), kinds=kinds, limit=args.limit)
+            else:
+                load_files(task, conn=conn, ctrl=PgFileCtrl(conn), scratch=scratch, kinds=kinds, limit=args.limit)
 
-    return run_task(body, pipeline=PIPELINE, task_id=TASK_ID, layer="bronze", entity="precos_raw",
-                    params={"kinds": list(kinds), "limit": args.limit})
+    return run_task(body, pipeline=PIPELINE, task_id=TASK_ID, layer="bronze",
+                    entity="batch_profile" if args.reprofile else "precos_raw",
+                    params={"kinds": list(kinds), "limit": args.limit, "reprofile": args.reprofile})
 
 
 if __name__ == "__main__":

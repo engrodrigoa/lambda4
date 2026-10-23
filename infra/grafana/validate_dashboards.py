@@ -19,6 +19,9 @@ from pathlib import Path
 
 DASH = Path(__file__).parent / "dashboards"
 DBS = {"pg-lambda": "lambda", "pg-airflow": "airflow"}
+# plausible values for multi-value variables (${var:singlequote})
+VAR_SAMPLES = {"level": "'WARNING','ERROR','CRITICAL'", "kind": "'semestral','mensal','semanal'",
+               "product": "'GASOLINA','ETANOL','DIESEL S10'"}
 
 
 def latest_run_id() -> str:
@@ -31,7 +34,9 @@ def latest_run_id() -> str:
 def sql_text(q: str, run_id: str) -> str:
     q = re.sub(r"\$__timeFilter\(([^)]+)\)", r"\1 > now() - interval '30 days'", q)
     q = re.sub(r"\$__timeGroupAlias\(([^,]+),\s*'[^']*'\)", r"date_trunc('hour', \1) AS time", q)
-    q = q.replace("$run_id", run_id).replace("${level:singlequote}", "'WARNING','ERROR','CRITICAL'")
+    q = q.replace("$run_id", run_id)
+    for var, value in VAR_SAMPLES.items():
+        q = q.replace("${" + var + ":singlequote}", value)
     return q
 
 

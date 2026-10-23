@@ -1,0 +1,4040 @@
+{
+  "uid": "lambda4-anp",
+  "title": "ANP · Pipeline health & survey batches",
+  "description": "ANP fuel price survey. Section 1: pipeline health (tasks, source files control, Airflow, logs). Section 2: statistical pre-assessment of every survey batch (file x collection month) from anp_bronze.batch_profile.",
+  "tags": [
+    "lambda4",
+    "anp"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "run_id",
+        "label": "Run",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "pg-lambda"
+        },
+        "refresh": 2,
+        "sort": 0,
+        "query": "SELECT run_id FROM audit.pipeline_run WHERE pipeline = 'anp' ORDER BY started_at DESC LIMIT 100",
+        "definition": "SELECT run_id FROM audit.pipeline_run WHERE pipeline = 'anp' ORDER BY started_at DESC LIMIT 100",
+        "includeAll": false,
+        "multi": false,
+        "current": {}
+      },
+      {
+        "name": "trace_id",
+        "label": "Trace id",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "pg-lambda"
+        },
+        "refresh": 1,
+        "hide": 2,
+        "query": "SELECT md5('$run_id')",
+        "definition": "SELECT md5('$run_id')",
+        "includeAll": false,
+        "multi": false,
+        "current": {}
+      },
+      {
+        "name": "kind",
+        "label": "File kind",
+        "type": "custom",
+        "query": "semestral,mensal,semanal",
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [
+          {
+            "text": "semestral",
+            "value": "semestral",
+            "selected": false
+          },
+          {
+            "text": "mensal",
+            "value": "mensal",
+            "selected": false
+          },
+          {
+            "text": "semanal",
+            "value": "semanal",
+            "selected": false
+          }
+        ]
+      },
+      {
+        "name": "product",
+        "label": "Product",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "pg-lambda"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "query": "SELECT DISTINCT produto FROM anp_bronze.batch_profile WHERE produto NOT IN ('*', 'GLP')",
+        "definition": "SELECT DISTINCT produto FROM anp_bronze.batch_profile WHERE produto NOT IN ('*', 'GLP')",
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "ANP runs",
+        "enable": true,
+        "iconColor": "#8AB8FF",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "pg-lambda"
+        },
+        "target": {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT started_at AS time, coalesce(finished_at, now()) AS timeend, 'anp ' || status AS text, status AS tags FROM audit.pipeline_run WHERE pipeline = 'anp' AND $__timeFilter(started_at)",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      }
+    ]
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "lambda4"
+      ],
+      "asDropdown": true,
+      "title": "lambda4 dashboards",
+      "includeVars": false,
+      "keepTime": true
+    }
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "1 · Pipeline health — run $run_id",
+      "id": 1,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Status",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT status FROM audit.pipeline_run WHERE run_id = '$run_id'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "SUCCESS": {
+                  "color": "green",
+                  "index": 0
+                },
+                "FAILED": {
+                  "color": "red",
+                  "index": 1
+                },
+                "RUNNING": {
+                  "color": "blue",
+                  "index": 2
+                },
+                "SKIPPED": {
+                  "color": "text",
+                  "index": 3
+                },
+                "PASS": {
+                  "color": "green",
+                  "index": 4
+                },
+                "FAIL": {
+                  "color": "red",
+                  "index": 5
+                },
+                "OK": {
+                  "color": "green",
+                  "index": 6
+                },
+                "WARN": {
+                  "color": "orange",
+                  "index": 7
+                },
+                "BLOCK": {
+                  "color": "red",
+                  "index": 8
+                },
+                "success": {
+                  "color": "green",
+                  "index": 9
+                },
+                "failed": {
+                  "color": "red",
+                  "index": 10
+                },
+                "running": {
+                  "color": "blue",
+                  "index": 11
+                },
+                "queued": {
+                  "color": "purple",
+                  "index": 12
+                },
+                "skipped": {
+                  "color": "text",
+                  "index": 13
+                },
+                "upstream_failed": {
+                  "color": "orange",
+                  "index": 14
+                },
+                "up_for_retry": {
+                  "color": "yellow",
+                  "index": 15
+                },
+                "scheduled": {
+                  "color": "purple",
+                  "index": 16
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 2,
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 0,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Duration",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT extract(epoch FROM coalesce(finished_at, now()) - started_at) FROM audit.pipeline_run WHERE run_id = '$run_id'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 3,
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 3,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Tasks failed",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FROM (SELECT DISTINCT ON (task_id) status FROM audit.task_run WHERE run_id = '$run_id' ORDER BY task_id, attempt DESC) t WHERE status = 'FAILED'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 4,
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 6,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Files downloaded",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT coalesce(sum(files_ok), 0) FROM audit.task_run WHERE run_id = '$run_id' AND task_id = 'anp02_download'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 5,
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 9,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Downloaded",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT coalesce(sum(bytes_out), 0) FROM audit.task_run WHERE run_id = '$run_id' AND task_id = 'anp02_download'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 6,
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 12,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Rows loaded (bronze)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT coalesce(sum(rows_out), 0) FROM audit.task_run WHERE run_id = '$run_id' AND layer = 'bronze'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 7,
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 15,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "DQ BLOCK / WARN fails",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FILTER (WHERE severity = 'BLOCK') AS block, count(*) FILTER (WHERE severity = 'WARN') AS warn FROM audit.dq_event WHERE run_id = '$run_id' AND status = 'FAIL'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 8,
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 18,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Rows quarantined",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT coalesce(sum(rows_rejected), 0) FROM audit.task_run WHERE run_id = '$run_id'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 9,
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 21,
+        "y": 1
+      }
+    },
+    {
+      "type": "table",
+      "title": "Tasks of the run",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT task_id, attempt, status, started_at, round(duration_s) AS duration_s, files_total, files_ok, files_failed, files_skipped, rows_in, rows_out, rows_rejected, bytes_out, warn_count, block_count, airflow_task_id, error_class, left(error_message, 200) AS error FROM audit.task_run WHERE run_id = '$run_id' ORDER BY started_at",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duration_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes_out"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "started_at"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 10,
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 5
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Task duration in this run",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT task_id || CASE WHEN attempt > 1 THEN ' #' || attempt ELSE '' END AS task, round(coalesce(duration_s, extract(epoch FROM now() - started_at))) AS seconds FROM audit.task_run WHERE run_id = '$run_id' ORDER BY started_at",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "barWidth": 0.7,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelRotation": 0,
+        "groupWidth": 0.7,
+        "stacking": "none",
+        "xField": "task"
+      },
+      "id": 11,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 5
+      }
+    },
+    {
+      "type": "table",
+      "title": "Checks of the run",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT created_at, task_id, check_name, severity, status, observed, threshold, left(message, 300) AS message FROM audit.dq_event WHERE run_id = '$run_id' ORDER BY (status = 'FAIL') DESC, created_at",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "severity"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "created_at"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 12,
+      "gridPos": {
+        "h": 9,
+        "w": 16,
+        "x": 0,
+        "y": 13
+      }
+    },
+    {
+      "type": "table",
+      "title": "Preflight health checks",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT component, status, latency_ms, detail::text AS detail FROM audit.health_check WHERE run_id = '$run_id' ORDER BY component",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "latency_ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 13,
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 13
+      }
+    },
+    {
+      "type": "traces",
+      "title": "Trace of the run (audit SQL, works without Tempo)",
+      "description": "Same ids as the Tempo trace (md5(run_id)); with Tempo running, Explore → Tempo → {resource.service.name=\"lambda-anp\"} shows the full spans.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT \"traceID\", \"spanID\", \"parentSpanID\", \"operationName\", \"serviceName\", \"startTime\", duration FROM audit.v_trace_spans WHERE run_id = '$run_id' ORDER BY \"startTime\"",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "id": 14,
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      }
+    },
+    {
+      "type": "row",
+      "title": "1 · Pipeline health — source files (ctrl)",
+      "id": 15,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Files known",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FROM ctrl.source_file WHERE pipeline = 'anp'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 16,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 32
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Downloaded",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FROM ctrl.source_file WHERE pipeline = 'anp' AND download_status = 'DOWNLOADED'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 17,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 32
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Loaded in bronze",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FROM ctrl.source_file WHERE pipeline = 'anp' AND bronze_status = 'LOADED'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 18,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 32
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Pending (download or bronze)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FROM ctrl.source_file WHERE pipeline = 'anp' AND ((listed AND download_status = 'PENDING') OR (download_status = 'DOWNLOADED' AND bronze_status = 'PENDING'))",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 19,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 32
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Failed / missing at source",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FROM ctrl.source_file WHERE pipeline = 'anp' AND (download_status IN ('FAILED', 'MISSING_AT_SOURCE') OR bronze_status = 'FAILED')",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 20,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 32
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Landing size",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT coalesce(sum(local_bytes), 0) FROM ctrl.source_file WHERE pipeline = 'anp'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 21,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 32
+      }
+    },
+    {
+      "type": "table",
+      "title": "Files by kind and state",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT source_kind, product_group, download_status, bronze_status, count(*) AS files, sum(local_bytes) AS bytes, sum(bronze_rows) AS rows, sum(bronze_quarantined) AS quarantined, min(period_start) AS from_period, max(period_end) AS to_period, max(loaded_at) AS last_load FROM ctrl.source_file WHERE pipeline = 'anp' GROUP BY 1, 2, 3, 4 ORDER BY 1, 2, 3, 4",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "download_status|bronze_status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "DOWNLOADED": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "LOADED": {
+                        "color": "green",
+                        "index": 1
+                      },
+                      "PENDING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 3
+                      },
+                      "MISSING_AT_SOURCE": {
+                        "color": "orange",
+                        "index": 4
+                      },
+                      "SKIPPED_DUPLICATE": {
+                        "color": "text",
+                        "index": 5
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "download_status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bronze_status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_load"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 22,
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 36
+      }
+    },
+    {
+      "type": "table",
+      "title": "Files needing attention",
+      "description": "Failed or missing downloads/loads, files no longer linked from the page, pending ones and duplicates.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT file_key, download_status, bronze_status, listed, download_attempts, left(last_error, 200) AS last_error, url, updated_at FROM ctrl.source_file WHERE pipeline = 'anp' AND (download_status IN ('FAILED', 'MISSING_AT_SOURCE') OR bronze_status = 'FAILED' OR NOT listed OR (listed AND download_status = 'PENDING') OR duplicate_of IS NOT NULL) ORDER BY updated_at DESC LIMIT 200",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "download_status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bronze_status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "updated_at"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 23,
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 36
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Control events per day",
+      "description": "DISCOVERED, DOWNLOADED, LOADED, CHANGED_AT_SOURCE, ... (ctrl.source_file_event).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT $__timeGroupAlias(created_at, '1d'), event AS metric, count(*) AS value FROM ctrl.source_file_event WHERE pipeline = 'anp' AND $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 24,
+      "gridPos": {
+        "h": 9,
+        "w": 10,
+        "x": 0,
+        "y": 45
+      }
+    },
+    {
+      "type": "table",
+      "title": "Recent control events",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT created_at, file_key, event, version, bytes, rows, left(detail::text, 300) AS detail, run_id FROM ctrl.source_file_event WHERE pipeline = 'anp' AND $__timeFilter(created_at) ORDER BY id DESC LIMIT 300",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "created_at"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 25,
+      "gridPos": {
+        "h": 9,
+        "w": 14,
+        "x": 10,
+        "y": 45
+      }
+    },
+    {
+      "type": "row",
+      "title": "1 · Pipeline health — Airflow (anp_pipeline) and logs",
+      "id": 26,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 54
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "anp_pipeline runs",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-airflow"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-airflow"
+          },
+          "rawSql": "SELECT run_id, state, run_type, queued_at, start_date, end_date, round(extract(epoch FROM coalesce(end_date, now()) - start_date)) AS duration_s, conf::text AS conf FROM dag_run WHERE dag_id = 'anp_pipeline' ORDER BY coalesce(start_date, queued_at) DESC LIMIT 30",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "state"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duration_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "queued_at"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "start_date"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "end_date"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 27,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 55
+      }
+    },
+    {
+      "type": "table",
+      "title": "Task instances of the latest Airflow run",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-airflow"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-airflow"
+          },
+          "rawSql": "SELECT task_id, state, try_number, start_date, end_date, round(duration::numeric) AS duration_s, hostname FROM task_instance WHERE dag_id = 'anp_pipeline' AND run_id = (SELECT run_id FROM dag_run WHERE dag_id = 'anp_pipeline' ORDER BY coalesce(start_date, queued_at) DESC LIMIT 1) ORDER BY start_date NULLS LAST",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "state"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duration_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "start_date"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "end_date"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 28,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 55
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Airflow task log lines by level",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (level) (count_over_time({job=\"airflow-tasks\", dag_id=\"anp_pipeline\"} [$__auto]))",
+          "legendFormat": "{{level}}",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 29,
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 63
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Pipeline events by level",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (level) (count_over_time({job=\"lambda-pipelines\", pipeline=\"anp\"} [$__auto]))",
+          "legendFormat": "{{level}}",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 30,
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 63
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Airflow task logs (anp_pipeline)",
+      "description": "Exactly what the Airflow UI shows per task attempt (stdout of the scripts included).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{job=\"airflow-tasks\", dag_id=\"anp_pipeline\"}",
+          "legendFormat": "",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none",
+        "prettifyLogMessage": false
+      },
+      "id": 31,
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 0,
+        "y": 70
+      }
+    },
+    {
+      "type": "table",
+      "title": "Pipeline warnings and errors (audit.log_event)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT ts, level, task_id, event, left(message, 300) AS message FROM audit.log_event WHERE pipeline = 'anp' AND level IN ('WARNING', 'ERROR', 'CRITICAL') AND $__timeFilter(ts) ORDER BY ts DESC LIMIT 300",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ts"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 32,
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 12,
+        "y": 70
+      }
+    },
+    {
+      "type": "row",
+      "title": "2 · Survey batches (lotes de pesquisa) — statistical pre-assessment",
+      "id": 33,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 82
+      },
+      "panels": []
+    },
+    {
+      "type": "text",
+      "title": "How to read",
+      "options": {
+        "mode": "markdown",
+        "content": "A **survey batch** (*lote de pesquisa*) is one source file × one collection month\n(`YYYY-MM` of *data da coleta*): a monthly file is one batch, a semester file six, a weekly file one or two.\nStatistics are computed at bronze load time (`anp_bronze.batch_profile`, raw text parsed only here: prices with a\ndecimal comma, dates `dd/mm/yyyy`). Since 2023 the same month exists in a semester, a monthly and weekly files:\ncompare them here; silver keeps one (semestral > mensal > semanal). **GLP** is priced per 13 kg bottle, the others\nper litre (GNV per m³). Filter by *File kind* and *Product* at the top."
+      },
+      "id": 34,
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 83
+      }
+    },
+    {
+      "type": "table",
+      "title": "Batch matrix — average sale price per product, stations (CNPJ) and brands per batch",
+      "description": "One row per survey batch. Price columns = average valor_de_venda of the product in the batch (empty = product not surveyed in that file). stations = distinct CNPJ surveyed, brands = distinct bandeiras, price_missing = rows without a parseable price.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT batch, file_key, source_kind, rows, stations, brands, cities, ufs, gasolina, gasolina_aditivada, etanol, diesel, diesel_s10, diesel_s50, gnv, glp, other_product_rows, price_missing FROM anp_bronze.v_batch_matrix WHERE source_kind IN (${kind:singlequote}) ORDER BY batch_month DESC, CASE source_kind WHEN 'semestral' THEN 1 WHEN 'mensal' THEN 2 ELSE 3 END, file_key",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gasolina"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gasolina_aditivada"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "etanol"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "diesel"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "diesel_s10"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "diesel_s50"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gnv"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "glp"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "price_missing"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 35,
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 87
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Survey batches",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FROM anp_bronze.v_batch_matrix WHERE source_kind IN (${kind:singlequote})",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 36,
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 101
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Months covered",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(DISTINCT batch_month) FROM anp_bronze.batch_profile WHERE batch_month > 0 AND source_kind IN (${kind:singlequote})",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 37,
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 101
+      }
+    },
+    {
+      "type": "stat",
+      "title": "First → last month",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT min(batch) || ' → ' || max(batch) FROM anp_bronze.v_batch_matrix WHERE batch_month > 0 AND source_kind IN (${kind:singlequote})",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 38,
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 101
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Rows without a parseable price",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT coalesce(sum(price_missing), 0) FROM anp_bronze.batch_profile WHERE produto = '*' AND source_kind IN (${kind:singlequote})",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 39,
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 101
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Average sale price per month — fuels (R$/l, GNV R$/m³)",
+      "description": "One point per month and product; when several files cover a month the most consolidated source wins (semestral > mensal > semanal).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT time, produto AS metric, price_avg AS value FROM ( SELECT DISTINCT ON (batch_month, produto) to_date(batch_month::text, 'YYYYMM')::timestamp AS time, batch_month, produto, price_avg FROM anp_bronze.batch_profile WHERE batch_month > 0 AND source_kind IN (${kind:singlequote}) AND produto IN (${product:singlequote}) ORDER BY batch_month, produto, CASE source_kind WHEN 'semestral' THEN 1 WHEN 'mensal' THEN 2 ELSE 3 END, profiled_at DESC) t ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyBRL",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "timeFrom": "25y",
+      "id": 40,
+      "gridPos": {
+        "h": 9,
+        "w": 16,
+        "x": 0,
+        "y": 105
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Average GLP P13 price per month (R$/13 kg)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT time, produto AS metric, price_avg AS value FROM ( SELECT DISTINCT ON (batch_month, produto) to_date(batch_month::text, 'YYYYMM')::timestamp AS time, batch_month, produto, price_avg FROM anp_bronze.batch_profile WHERE batch_month > 0 AND source_kind IN (${kind:singlequote}) AND produto = 'GLP' ORDER BY batch_month, produto, CASE source_kind WHEN 'semestral' THEN 1 WHEN 'mensal' THEN 2 ELSE 3 END, profiled_at DESC) t ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyBRL",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "timeFrom": "25y",
+      "id": 41,
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 105
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Stations surveyed (distinct CNPJ) per batch",
+      "description": "Per file family: overlapping files of the same month should survey a similar number of stations.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT to_date(batch_month::text, 'YYYYMM')::timestamp AS time, source_kind || ' ' || product_group AS metric, stations AS value FROM anp_bronze.batch_profile WHERE produto = '*' AND batch_month > 0 AND source_kind IN (${kind:singlequote}) ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "points",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "timeFrom": "25y",
+      "id": 42,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 114
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Brands (bandeiras) per batch",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT to_date(batch_month::text, 'YYYYMM')::timestamp AS time, source_kind || ' ' || product_group AS metric, brands AS value FROM anp_bronze.batch_profile WHERE produto = '*' AND batch_month > 0 AND source_kind IN (${kind:singlequote}) ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "points",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "timeFrom": "25y",
+      "id": 43,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 114
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Collections (rows) per batch",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT to_date(batch_month::text, 'YYYYMM')::timestamp AS time, source_kind || ' ' || product_group AS metric, rows AS value FROM anp_bronze.batch_profile WHERE produto = '*' AND batch_month > 0 AND source_kind IN (${kind:singlequote}) ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "timeFrom": "25y",
+      "id": 44,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 122
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Cities and UFs per batch",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT to_date(batch_month::text, 'YYYYMM')::timestamp AS time, source_kind || ' ' || product_group || ' cities' AS metric, cities AS value FROM anp_bronze.batch_profile WHERE produto = '*' AND batch_month > 0 AND source_kind IN (${kind:singlequote}) ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT to_date(batch_month::text, 'YYYYMM')::timestamp AS time, source_kind || ' ' || product_group || ' UFs' AS metric, ufs AS value FROM anp_bronze.batch_profile WHERE produto = '*' AND batch_month > 0 AND source_kind IN (${kind:singlequote}) ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "points",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "timeFrom": "25y",
+      "id": 45,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 122
+      }
+    },
+    {
+      "type": "table",
+      "title": "Price dispersion per batch and product",
+      "description": "min / median / average / max sale price, standard deviation and coefficient of variation (cv %) of every product in every batch. A cv far from its neighbours or min/max outliers point to typing errors at the source.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT left(batch_month::text, 4) || '-' || right(batch_month::text, 2) AS batch, file_key, produto, rows, stations, price_min, price_p50, price_avg, price_max, price_stddev, round(100 * price_stddev / nullif(price_avg, 0), 1) AS cv_pct, price_missing, buy_price_avg FROM anp_bronze.batch_profile WHERE produto <> '*' AND batch_month > 0 AND source_kind IN (${kind:singlequote}) AND produto IN (${product:singlequote}, 'GLP') ORDER BY batch_month DESC, produto, CASE source_kind WHEN 'semestral' THEN 1 WHEN 'mensal' THEN 2 ELSE 3 END",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "price_.*|buy_price_avg"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "price_missing"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 46,
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 130
+      }
+    },
+    {
+      "type": "table",
+      "title": "Data quality per file",
+      "description": "Quarantined records (wrong field count), rows whose date did not parse (batch 'no date'), rows without a price, rows of products outside the matrix columns.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT s.file_key, s.source_kind, s.bronze_rows AS rows, s.bronze_quarantined AS quarantined, p.batches, p.no_date_rows, p.price_missing, p.other_product_rows, s.version, s.loaded_at FROM ctrl.source_file s LEFT JOIN ( SELECT file_key, count(*) FILTER (WHERE batch_month > 0) AS batches, coalesce(sum(rows) FILTER (WHERE batch_month = 0), 0) AS no_date_rows, sum(price_missing) AS price_missing, sum(other_product_rows) AS other_product_rows FROM anp_bronze.v_batch_matrix GROUP BY file_key) p ON p.file_key = s.file_key WHERE s.pipeline = 'anp' AND s.bronze_status = 'LOADED' AND s.source_kind IN (${kind:singlequote}) ORDER BY (coalesce(s.bronze_quarantined, 0) + coalesce(p.no_date_rows, 0) + coalesce(p.price_missing, 0)) DESC, s.file_key",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "loaded_at"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 47,
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 142
+      }
+    }
+  ]
+}

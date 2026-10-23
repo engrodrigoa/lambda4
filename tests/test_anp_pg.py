@@ -3,6 +3,7 @@ same transaction, idempotent reload and the BLOCK on a refused file are exercise
 
 Skipped when Postgres is unreachable, or when ctrl.source_file already holds ANP rows (a real environment in use)."""
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -35,9 +36,10 @@ def conn():
 
 
 def _row(key, path, fmt, sha, kind="semestral", **kw):
-    return new_row(pipeline="anp", file_key=key, source_kind=kind, product_group="ca", period_start=date(2014, 1, 1),
-                   period_end=date(2014, 6, 30), url="http://x", download_status="DOWNLOADED", local_path=str(path),
-                   local_bytes=path.stat().st_size, file_format=fmt, sha256=sha, version=1, **kw)
+    fields = {"period_start": date(2014, 1, 1), "period_end": date(2014, 6, 30), **kw}
+    return new_row(pipeline="anp", file_key=key, source_kind=kind, product_group="ca", url="http://x",
+                   download_status="DOWNLOADED", local_path=str(path), local_bytes=path.stat().st_size,
+                   file_format=fmt, sha256=sha, version=1, **fields)
 
 
 def _load(conn, tmp_path):
@@ -96,3 +98,37 @@ def test_refused_file_blocks_after_loading_the_others(conn, tmp_path):
     assert state["semestral/ca/2014-S1"]["bronze_status"] == "LOADED"
     assert state["semestral/ca/2014-S2"]["bronze_status"] == "FAILED"
     assert "bandeira" in state["semestral/ca/2014-S2"]["last_error"]
+
+
+def test_batch_profile_and_matrix(conn, tmp_path):
+    """Survey batches = file x collection month; the matrix pivots the average price per product."""
+    ctrl = PgFileCtrl(conn)
+    path = tmp_path / "s2.csv"
+    etanol = ROW.format(d="15/08/2014").replace("GASOLINA", "ETANOL").replace("2,899", "1,999")
+    path.write_bytes(csv_bytes("01/07/2014", "02/07/2014", extra=[
+        ROW.format(d="03/07/2014").replace("2,899", "3,101").replace("49.051.667/0001-02", "11.111.111/0001-11"),
+        etanol, ROW.format(d="16/08/2014").replace("2,899", "")]))
+    ctrl.save([_row("semestral/ca/2014-S2", path, "csv", "e" * 64, period_start=date(2014, 7, 1),
+                    period_end=date(2014, 12, 31))])
+    assert _load(conn, tmp_path) == EXIT_OK
+
+    prof = {(m, p): (rows, stations, avg, missing) for m, p, rows, stations, avg, missing in conn.execute(
+        "SELECT batch_month, produto, rows, stations, price_avg, price_missing FROM anp_bronze.batch_profile "
+        "WHERE file_key = 'semestral/ca/2014-S2'").fetchall()}
+    assert prof[(201407, "*")] == (3, 2, Decimal("2.9663"), 0)
+    assert prof[(201407, "GASOLINA")] == (3, 2, Decimal("2.9663"), 0)
+    assert prof[(201408, "*")][0] == 2 and prof[(201408, "*")][3] == 1          # one empty price
+    assert prof[(201408, "ETANOL")][2] == Decimal("1.9990")
+    m = conn.execute("SELECT batch, rows, stations, brands, gasolina, etanol, glp FROM anp_bronze.v_batch_matrix "
+                     "WHERE file_key = 'semestral/ca/2014-S2' ORDER BY batch").fetchall()
+    assert m == [("2014-07", 3, 2, 1, Decimal("2.9663"), None, None),
+                 ("2014-08", 2, 1, 1, None, Decimal("1.9990"), None)]
+
+    # --reprofile recomputes from bronze without touching the data
+    conn.execute("DELETE FROM anp_bronze.batch_profile")
+
+    def body(task):
+        anp03.reprofile_files(task, conn=conn, ctrl=PgFileCtrl(conn))
+
+    assert run_task(body, pipeline="anp", task_id="anp03_bronze", layer="bronze") == EXIT_OK
+    assert conn.execute("SELECT count(*) FROM anp_bronze.batch_profile WHERE produto = '*'").fetchone()[0] == 2

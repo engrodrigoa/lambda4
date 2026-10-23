@@ -64,7 +64,14 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 - Bronze: `anp_bronze.precos_raw` (Postgres, all text, LIST partitions by `_source_kind`, lineage `_file_key`,
   `_file_sha256`, `_record_no`, `_run_id`, `_ingested_at`) + `anp_bronze.precos_quarantine`. Reader: Python csv scan
   (field counts, encoding) then Polars fast path; COPY via psycopg3 (`pipelines/commons/pg.py`, autocommit conns).
-- DDL `infra/postgres/anp_schema.sql` (idempotent) — **not applied yet** (owner applies it).
+- DDL `infra/postgres/anp_schema.sql` (idempotent; applied by the owner 2026-10-23, re-apply after changes).
+- Survey batch ("lote de pesquisa") = file x collection month. `anp_bronze.batch_profile` (per batch and product:
+  rows, distinct CNPJ/brands/cities/UFs, price avg/min/p50/max/stddev, missing) is computed by anp03 in the SAME
+  transaction as the load (`--reprofile` recomputes); `anp_bronze.v_batch_matrix` pivots avg price per product.
+  Grafana dashboard `lambda4-anp` ("ANP · Pipeline health & survey batches"): section 1 health (run, tasks, checks,
+  ctrl files/events, Airflow runs + task logs, warnings), section 2 batch matrix + price/stations/brands series.
+- Measured (2026-10-23, 915 k-row semester): read 1.8 s, COPY ~45 k rows/s with psycopg3 (psql/psycopg2 ~100 k/s:
+  driver overhead, not indexes), profile ~12 s -> first full load ~30 min. Optional tuning: psycopg2/ADBC COPY.
 - Silver/gold/Streamlit: the owner builds the dbt project himself, end to end (study goal). Agreed design in
   `docs/architecture-anp.md` §5 (dedup semestral > mensal > semanal; dims posto/endereco(md5)/produto/bandeira/
   municipio/data; fact + weekly aggregate). dbt: `~/.envs/env-dbt` (dbt-core 1.12.5, dbt-postgres 1.11), Cosmos 1.15.
@@ -110,7 +117,7 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 - Postgres `audit`: pipeline_run, task_run (+airflow_task_id), dq_event, log_event (monthly partitions, 90 d), quarantine_summary, health_check, delta_table_stats, views v_last_runs / v_task_latest / v_dq_open / v_logs_recent / v_trace_spans. DDL: `infra/postgres/audit_schema.sql` (idempotent).
 - Loki: `job=lambda-pipelines` (pipeline JSON events) and `job=airflow-tasks` (raw Airflow task logs, labels dag_id/task_id/attempt/level). Airflow logs live in `/var/log/lambda/airflow`.
 - Prometheus: `job=lambda_pipeline` (Pushgateway batch metrics), `airflow_*` (Airflow OpenTelemetry, standard `OTEL_EXPORTER_OTLP_METRICS_*` env since 2026-10-21 -> Alloy OTLP :4318 -> remote write; Prometheus runs with `--web.enable-remote-write-receiver`). Rules: `infra/prometheus/rules/lambda_pipeline.yml` (reload: `sudo systemctl reload prometheus`).
-- Grafana folder "Lambda4 · RFB": dashboards as code `infra/grafana/build_dashboards.py` -> `infra/grafana/install.sh`; `infra/grafana/validate_dashboards.py` runs every query. Do not edit dashboards in the UI (not persisted).
+- Grafana folder "Lambda4" (renamed from "Lambda4 · RFB" on 2026-10-23): dashboards as code `infra/grafana/build_dashboards.py` -> `infra/grafana/install.sh`; `infra/grafana/validate_dashboards.py` runs every query. Do not edit dashboards in the UI (not persisted).
 - Traces (phase 2, installed 2026-10-21): `pipelines/commons/tracing.py` (OTel SDK 1.44 in env-data) -> OTLP/HTTP
   Alloy `127.0.0.1:4318` -> Tempo 3.1 (`127.0.0.1:4417` gRPC in, `:3200` API; on demand; `/var/lib/tempo`, 14 d;
   config `infra/tempo/`, `apt-mark hold tempo`). `trace_id = md5(run_id)` (same as `audit.v_trace_spans`); span per
