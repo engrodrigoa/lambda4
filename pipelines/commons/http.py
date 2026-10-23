@@ -69,6 +69,29 @@ class Fetcher:
                 self._wait(attempt)
         return status
 
+    def remote_size(self, url: str) -> tuple[int, int | None]:
+        """(status, total bytes) from a 1-byte ranged GET: some servers (gov.br) send no Content-Length on HEAD,
+        but answer `Content-Range: bytes 0-0/<total>`. Status 0 = no answer; size None = not announced."""
+        status = 0
+        for attempt in range(self.retries):
+            try:
+                with self.session.request("GET", url, auth=self.auth, timeout=self.timeout[0], stream=True,
+                                          headers={"Range": "bytes=0-0"}) as r:
+                    status = r.status_code
+                    total = r.headers.get("Content-Range", "").rpartition("/")[2]
+                    if status == 206 and total.isdigit():
+                        return status, int(total)
+                    if status == 200:
+                        length = r.headers.get("Content-Length", "")
+                        return status, int(length) if length.isdigit() else None
+            except requests.RequestException:
+                status = 0
+            if status != 0 and status not in self.retryable:
+                return status, None
+            if attempt < self.retries - 1:
+                self._wait(attempt)
+        return status, None
+
     def download(self, url: str, dest: Path, validate: Callable[[Path], bool] | None = None) -> DownloadResult:
         dest = Path(dest)
         tmp = dest.with_name(dest.name + ".part")

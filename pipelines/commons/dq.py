@@ -58,6 +58,25 @@ SEVERITY: dict[str, Severity] = {
     "gold.rows_nonzero": Severity.BLOCK,
     # maintenance
     "maintenance.vacuum_retention": Severity.WARN,      # never vacuum below the time-travel retention
+    # discovery of scraped sources (ANP portal)
+    "discover.catalog_nonempty": Severity.BLOCK,        # the page parsed into at least one known file
+    "discover.unclassified_links": Severity.WARN,       # data links the contract does not recognise (scrape drift)
+    "discover.weekly_date_found": Severity.WARN,        # "atualizado em" of the weekly files found on the page
+    "discover.files_unlisted": Severity.WARN,           # files known before are no longer linked from the page
+    "discover.files_changed_at_source": Severity.WARN,  # a downloaded file changed size at the source (republished)
+    "discover.period_gaps": Severity.WARN,              # missing months/semesters inside a published series
+    # downloads of scraped sources
+    "landing.downloads_ok": Severity.BLOCK,             # files were pending and none could be downloaded
+    "landing.download_failures": Severity.WARN,         # some files failed (retried on the next run)
+    # bronze in Postgres (ANP)
+    "bronze.contract_columns": Severity.BLOCK,          # header lacks contract columns (file refused, run fails)
+    "bronze.extra_columns": Severity.WARN,              # header has columns outside the contract (dropped)
+    "bronze.encoding_fallback": Severity.WARN,          # not valid UTF-8: decoded lossy (bad bytes replaced)
+    "bronze.rows_vs_previous_version": Severity.WARN,   # a republished file differs too much from the loaded one
+    "bronze.dates_outside_period": Severity.WARN,       # collection dates outside the file's period (misclassified?)
+    "bronze.load_failures": Severity.WARN,              # some files failed to load (retried on the next run)
+    "preflight.postgres": Severity.BLOCK,               # data database reachable and its schemas exist
+    "preflight.source_reachable": Severity.WARN,        # source page answers (discover fails anyway if not)
 }
 
 

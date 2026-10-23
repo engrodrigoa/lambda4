@@ -2,6 +2,7 @@
 
 Reference document for the RFB (Receita Federal, CNPJ open data) pipeline: what runs, where data lives, which script
 writes which table, and how every step is observed. Study material in Portuguese: `docs/learning/`.
+The ANP pipeline (Postgres bronze, Polars) has its own reference: `docs/architecture-anp.md`.
 
 ## 1. End-to-end flow
 

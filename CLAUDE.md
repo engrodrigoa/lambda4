@@ -1,6 +1,6 @@
 # Projeto Lambda (lambda4)
 
-> Contexto do projeto Lambda (atualizado em 2026-10-21, tracing fase 2). Referência técnica: `docs/architecture.md`.
+> Contexto do projeto Lambda (atualizado em 2026-10-22, projeto 2 ANP até a bronze). Referência técnica: `docs/architecture.md` (RFB) e `docs/architecture-anp.md` (ANP).
 
 ## Papel do assistente
 Instrutor + assistente de engenharia de dados/IA. Guiar com boas práticas de modelagem de pipelines,
@@ -50,6 +50,26 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 - Keys: **natural keys** (estabelecimento `cnpj_basico+ordem+dv`; empresa/simples `cnpj_basico`; socios composite, validated on pilot data). No md5. SCD2 change detection uses Spark `xxhash64` over tracked columns, compared only between versions of the same key.
 - Serving: DuckDB over gold for DBeaver.
 
+## Project 2 — ANP fuel prices, full history (decisions 2026-10-22, ADR 0006)
+- Source: ANP portal page "Série Histórica de Preços de Combustíveis e de GLP" (224 files, ~5.4 GB, ~40 M rows:
+  semestral ca/glp since 2004, mensal diesel-gnv/gasolina-etanol/glp since 2023, semanal last 4 weeks). One 16-column
+  layout; some semesters are ZIPs (one behind a `.csv` name); irregular monthly/GLP names; gov.br throttles bursts.
+- Flow: `anp00_preflight -> anp01_discover -> anp02_download -> anp03_bronze -> finalize`, DAG `anp_pipeline`
+  (`airflow/dags/dag_anp.py`, daily 08:00 BRT, created PAUSED; **the owner runs it**). No Spark, no SeaweedFS.
+- Landing: local `LANDING_URI` + `anp/<kind>/<product>/<label>__<sha12>.<csv|zip>` (immutable, every version kept).
+- Control: Postgres schema `ctrl` (`source_file` current state + `source_file_event` history; generic by `pipeline`)
+  — exception to "ctrl = Delta" because the bronze load updates ctrl in the SAME transaction. `file_key` identity
+  (`semestral/ca/2014-S1`, `mensal/glp/2026-09`, `semanal/glp/<page date>`), versions by sha256, size probes with a
+  1-byte ranged GET (recent files; `--full-recheck` for all), exit 99 when up to date.
+- Bronze: `anp_bronze.precos_raw` (Postgres, all text, LIST partitions by `_source_kind`, lineage `_file_key`,
+  `_file_sha256`, `_record_no`, `_run_id`, `_ingested_at`) + `anp_bronze.precos_quarantine`. Reader: Python csv scan
+  (field counts, encoding) then Polars fast path; COPY via psycopg3 (`pipelines/commons/pg.py`, autocommit conns).
+- DDL `infra/postgres/anp_schema.sql` (idempotent) — **not applied yet** (owner applies it).
+- Silver/gold/Streamlit: the owner builds the dbt project himself, end to end (study goal). Agreed design in
+  `docs/architecture-anp.md` §5 (dedup semestral > mensal > semanal; dims posto/endereco(md5)/produto/bandeira/
+  municipio/data; fact + weekly aggregate). dbt: `~/.envs/env-dbt` (dbt-core 1.12.5, dbt-postgres 1.11), Cosmos 1.15.
+  Do not create dbt models for ANP unless asked.
+
 ## Model policy (set by the owner)
 - Use **Opus 5.5** to write/generate code (precision); **Sonnet 5.5** for general discussion and planning (token economy). Prioritize Opus 5.5 when in doubt about code correctness.
 
@@ -70,7 +90,7 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 
 ## Pipeline code (state 2026-10-21)
 - Reference: `docs/architecture.md` (flow, DAG, lineage per step, data model, observability map, runbook). ADRs 0001-0005. Study reports `docs/learning/01..06` (pt-BR).
-- `pipelines/commons/`: settings (`lake_uri`, env file), refmonth, context (Airflow ctx, `airflow_task_id`), logger (JSON lines with `trace_id`/`span_id`), audit (best-effort sink + spool), metrics (Pushgateway), tracing (OTel SDK spans, no-op when off), dq (THE severity registry), task (`TaskRun`/`run_task`, exit 0/99/1, SIGTERM -> recorded failure, one span per attempt), http, landing, spark, ctrl (Delta control + `InMemoryCtrl`), csv_split, quarantine, lake (DuckDB views over Delta via the metastore), delta_stats (`audit.delta_table_stats`), scd2 (generic SCD2 MERGE, rollback, as_of, table property `lambda.scd2.last_month`), finalize_run, airflow_callbacks.
+- `pipelines/commons/`: settings (`lake_uri`, `pg_dsn`, env file), pg (COPY of Polars frames), file_ctrl (Postgres ctrl of file sources), health (preflight probes), airflow_ops (`TracedBashOperator`), refmonth, context (Airflow ctx, `airflow_task_id`), logger (JSON lines with `trace_id`/`span_id`), audit (best-effort sink + spool), metrics (Pushgateway), tracing (OTel SDK spans, no-op when off), dq (THE severity registry), task (`TaskRun`/`run_task`, exit 0/99/1, SIGTERM -> recorded failure, one span per attempt), http, landing, spark, ctrl (Delta control + `InMemoryCtrl`), csv_split, quarantine, lake (DuckDB views over Delta via the metastore), delta_stats (`audit.delta_table_stats`), scd2 (generic SCD2 MERGE, rollback, as_of, table property `lambda.scd2.last_month`), finalize_run, airflow_callbacks.
 - `pipelines/rfb/`: contract (37 files, columns, fixed CODES), source, rfb00_preflight, rfb01_download, rfb02_extract, rfb03_bronze, silver_model + rfb04_silver (SCD2), rfb05_gold (`--target dims|estabelecimento_atual|socio_atual|fato_mudanca_cadastral|agg_estabelecimentos_mensal`), rfb06_maintenance.
 - DAG `rfb_pipeline` = `airflow/dags/dag_rfb.py` (symlinked into `~/airflow/dags/lambda4`): 24 tasks, param `ref_month`, pools `rfb_spark`(1) / `rfb_extract`(1), skip on exit 99, finalize `all_done` (fails if the run failed). Created PAUSED; **the owner runs it himself** (never trigger it without being asked).
 - Real data: first full DAG run 2026-10-21 (`manual__2026-10-21T11:01:33.444773+00:00`, ref 2026-09): SUCCESS in 3 h 33 min,
@@ -81,7 +101,7 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
   17 min. Tuned the same day (ADR 0005), see Pendências 3.
   Datalake 47 GB used after the run (VACUUM keeps 168 h of old files).
   **2026-10-21 (after the tuning): silver SCD2 reset** (4 `*_hist` tables dropped, files removed from s3://silver, `silver.*` watermarks of the 4 SCD2 entities deleted; bronze 2026-09 + landing kept) to reload from older months. Silver accepts months only oldest -> newest (2026-07, then 08, then 09); source confirmed to publish 07/08/09.
-- Tests: `~/.envs/env-data/bin/python -m pytest` (59 tests; `tests/spark/` = local Spark + Delta in a temp folder, never the lake; `-m "not spark"` to skip). Lint: `ruff check pipelines tests airflow infra`.
+- Tests: `~/.envs/env-data/bin/python -m pytest` (82 tests; `tests/test_anp_pg.py` = real Postgres inside a rolled-back transaction, skipped if ctrl has ANP rows; `tests/spark/` = local Spark + Delta in a temp folder, never the lake; `-m "not spark"` to skip). Lint: `ruff check pipelines tests airflow infra`.
 - Known issue: the Delta SQL extension breaks `spark.sql(..., args=...)` (UNBOUND_SQL_PARAMETER). Use the DataFrame API; literal SQL only with values from code.
 - Known noise: `ERROR HiveAlterHandler: Failed to alter table` after Delta writes is harmless.
 - **Spark is pinned to 4.1.0** (ADR 0002). Never upgrade Spark or Delta alone.
@@ -155,3 +175,4 @@ Todos os serviços escutam em localhost; acesso remoto por **túnel SSH** (`lab 
 3. ~~Ajustes da 1ª execução real~~ — **feito em 2026-10-21** (ADR 0005, relatório `docs/learning/06`), a confirmar na próxima execução: (a) silver: tipagem sem regex por passo (73 → 34 µs/linha, saída idêntica) + dedup numa única window + 192 partições de shuffle; medido local: trecho do dedup 338 → 182 s (×5,56 ≈ 32 → ~17 min no real) → `estabelecimentos.silver` esperado 53 → ~38 min; (b) optimized writes no silver/gold (~256 MiB por arquivo; local: 5 × 185 MB em vez de 35 × 27 MB, sem custo extra) + `rfb06 --optimize auto` (só tabelas com ≥ 8 arquivos e média < 64 MiB; min/maxFileSize 64/256 MiB) → `maintenance` esperado 69 → ~10–15 min; (c) `spark.ui.showConsoleProgress=false` padrão em `build_spark`; (d) métricas do Airflow via `OTEL_EXPORTER_OTLP_METRICS_*`/`OTEL_METRICS_EXPORTER` (nomes `airflow_*` e `job="airflow"` iguais, dashboards validados), Airflow reiniciado → `service.name=airflow` conferido no Tempo (via bootstrap de tracing do Airflow; a árvore da DAG aparece na próxima execução).
 4. CI (rodar `pytest` e `ruff` a cada push) depois do primeiro pipeline completo validado.
 5. Backfill de meses anteriores: silver só aceita meses em ordem a partir do primeiro carregado (reconstruir para começar mais cedo).
+6. ANP (projeto 2): aplicar `infra/postgres/anp_schema.sql`, primeira execução pequena à mão (runbook `docs/architecture-anp.md` §7), depois a carga completa pela DAG `anp_pipeline`; projeto dbt silver/gold e Streamlit (`env-app`, papel `streamlit_ro`) feitos pelo dono.

@@ -52,6 +52,8 @@ class Settings:
     audit_dsn: str
     audit_log_min_level: str
     audit_spool_dir: Path
+    # data in Postgres (ANP bronze + ctrl schema): same local socket and peer auth as audit
+    pg_dsn: str
     # metrics
     metrics_enabled: bool
     pushgateway_url: str
@@ -100,6 +102,7 @@ def get_settings() -> Settings:
         audit_dsn=get("LAMBDA_AUDIT_DSN", "dbname=lambda host=/var/run/postgresql connect_timeout=3"),
         audit_log_min_level=get("AUDIT_LOG_MIN_LEVEL", "INFO").upper(),
         audit_spool_dir=Path(get("LAMBDA_AUDIT_SPOOL_DIR", str(scratch / "audit-spool"))),
+        pg_dsn=get("LAMBDA_PG_DSN", "dbname=lambda host=/var/run/postgresql connect_timeout=5"),
         metrics_enabled=_flag(get("LAMBDA_METRICS_ENABLED", "1")),
         pushgateway_url=get("LAMBDA_PUSHGATEWAY_URL", "127.0.0.1:9091"),
         otel_enabled=_flag(get("LAMBDA_OTEL_ENABLED", "1")),

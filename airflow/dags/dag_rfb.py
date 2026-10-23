@@ -33,6 +33,7 @@ from airflow.sdk import DAG, Asset, Param, TaskGroup
 REPO = Path(__file__).resolve().parents[2]          # the DAG folder is a symlink into the repository
 sys.path.insert(0, str(REPO))
 from pipelines.commons.airflow_callbacks import close_running_attempt  # noqa: E402
+from pipelines.commons.airflow_ops import TracedBashOperator  # noqa: E402
 
 PY = Path.home() / ".envs" / "env-data" / "bin" / "python"
 ENV = {
@@ -51,24 +52,6 @@ GOLD_TARGETS = ("estabelecimento_atual", "socio_atual", "fato_mudanca_cadastral"
 
 def asset(layer: str, table: str) -> Asset:
     return Asset(name=f"rfb_{layer}.{table}", uri=f"lambda://rfb/{layer}/{table}")
-
-
-class TracedBashOperator(BashOperator):
-    """BashOperator that hands Airflow's current span (`worker.<task>`, when AIRFLOW__TRACES__OTEL_ON) to the process
-    as W3C TRACEPARENT; pipelines/commons/tracing.py turns it into a span link."""
-
-    def get_env(self, context) -> dict:
-        env = super().get_env(context)
-        try:
-            from opentelemetry.propagate import inject
-
-            carrier: dict[str, str] = {}
-            inject(carrier)
-            if carrier.get("traceparent"):
-                env["TRACEPARENT"] = carrier["traceparent"]
-        except Exception:  # noqa: BLE001 - tracing must never fail a task
-            pass
-        return env
 
 
 def step(task_id: str, module: str, args: str, *, pool: str = "default_pool", timeout_min: int = 60,
