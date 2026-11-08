@@ -1,7 +1,11 @@
 """anp03 against the real Postgres, inside ONE transaction that is rolled back: the DDL, COPY, quarantine, ctrl in the
 same transaction, idempotent reload and the BLOCK on a refused file are exercised, and nothing is left behind.
 
-Skipped when Postgres is unreachable, or when ctrl.source_file already holds ANP rows (a real environment in use)."""
+Skipped when Postgres is unreachable, or when ctrl.source_file already holds ANP rows (a real environment in use).
+On the lab, where `lambda` holds real data, point the tests to a throwaway database:
+    createdb lambda_test && LAMBDA_TEST_PG_DSN="dbname=lambda_test host=/var/run/postgresql" pytest tests/test_anp_pg.py
+    dropdb lambda_test"""
+import os
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -21,7 +25,8 @@ DDL = Path(__file__).resolve().parents[1] / "infra" / "postgres" / "anp_schema.s
 def conn():
     psycopg = pytest.importorskip("psycopg")
     try:
-        c = psycopg.connect("dbname=lambda host=/var/run/postgresql connect_timeout=3", autocommit=False)
+        c = psycopg.connect(os.environ.get("LAMBDA_TEST_PG_DSN", "dbname=lambda host=/var/run/postgresql")
+                            + " connect_timeout=3", autocommit=False)
     except psycopg.OperationalError as exc:
         pytest.skip(f"postgres unavailable: {exc}")
     try:
@@ -52,7 +57,7 @@ def _load(conn, tmp_path):
 def test_bronze_load_is_transactional_and_idempotent(conn, tmp_path):
     ctrl = PgFileCtrl(conn)
     plain = tmp_path / "s1.csv"
-    plain.write_bytes(csv_bytes("02/01/2014", "03/01/2014", extra=["SE;SP;CURTA"]))
+    plain.write_bytes(csv_bytes("02/01/2014", "03/01/2014", extra=["SE;SP;CURTA", ";" * 15]))
     zipped = tmp_path / "s2.zip"
     zipped.write_bytes(zip_bytes("Preços.csv", csv_bytes("01/07/2014")))
     ctrl.save([_row("semestral/ca/2014-S1", plain, "csv", "a" * 64),
@@ -65,11 +70,12 @@ def test_bronze_load_is_transactional_and_idempotent(conn, tmp_path):
                      "FROM anp_bronze.precos_raw WHERE _file_key = 'semestral/ca/2014-S1' "
                      "ORDER BY _record_no").fetchall()
     assert r[0] == ("KM 210;5", " 49.051.667/0001-02", None, 1, "a" * 64)      # raw values, NULL for empty
-    q = conn.execute("SELECT _record_no, reason, raw_record FROM anp_bronze.precos_quarantine").fetchall()
-    assert q == [(3, "field_count_3", "SE;SP;CURTA")]
+    q = conn.execute("SELECT _record_no, reason, raw_record FROM anp_bronze.precos_quarantine "
+                     "ORDER BY _record_no").fetchall()
+    assert q == [(3, "field_count_3", "SE;SP;CURTA"), (4, "empty_record", ";" * 15)]
     state = ctrl.load("anp")
     assert state["semestral/ca/2014-S1"]["bronze_status"] == "LOADED"
-    assert (state["semestral/ca/2014-S1"]["bronze_rows"], state["semestral/ca/2014-S1"]["bronze_quarantined"]) == (2, 1)
+    assert (state["semestral/ca/2014-S1"]["bronze_rows"], state["semestral/ca/2014-S1"]["bronze_quarantined"]) == (2, 2)
     assert not list((tmp_path / "scratch").iterdir())                            # extracted ZIP removed
     events = conn.execute("SELECT event, rows FROM ctrl.source_file_event ORDER BY file_key").fetchall()
     assert events == [("LOADED", 1), ("LOADED", 2)]

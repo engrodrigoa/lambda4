@@ -1,0 +1,21 @@
+version: 2
+
+seeds:
+  - name: anp_produto_grupo
+    description: >
+      Produto ANP -> grupo de arquivo (precedência por mês x grupo na silver), unidade de medida e ordem de exibição
+      (cards, matriz e cores do Streamlit). Um produto novo da ANP entra aqui: os testes de not_null/relationships
+      da silver acusam se faltar.
+    columns:
+      - name: produto
+        data_tests: [unique, not_null]
+      - name: product_group
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['glp', 'gasolina-etanol', 'diesel-gnv']
+      - name: unidade_medida
+        data_tests: [not_null]
+      - name: ordem
+        data_tests: [unique, not_null]

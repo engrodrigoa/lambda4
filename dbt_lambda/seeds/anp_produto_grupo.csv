@@ -1,9 +1,9 @@
-produto,product_group
-GASOLINA,gasolina-etanol
-GASOLINA ADITIVADA,gasolina-etanol
-ETANOL,gasolina-etanol
-DIESEL,diesel-gnv
-DIESEL S10,diesel-gnv
-GNV,diesel-gnv
-GLP,glp
-DIESEL S50,diesel-gnv
+produto,product_group,unidade_medida,ordem
+GASOLINA,gasolina-etanol,R$ / litro,1
+GASOLINA ADITIVADA,gasolina-etanol,R$ / litro,2
+ETANOL,gasolina-etanol,R$ / litro,3
+DIESEL S10,diesel-gnv,R$ / litro,4
+DIESEL,diesel-gnv,R$ / litro,5
+GNV,diesel-gnv,R$ / m³,6
+GLP,glp,R$ / 13 kg,7
+DIESEL S50,diesel-gnv,R$ / litro,8

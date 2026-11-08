@@ -10,8 +10,8 @@ Behaviour
   done. CSVs are read straight from the landing zone.
 * Contract: the header must contain the 16 contract columns (else the file is refused: BLOCK at the end of the run,
   after the other files are loaded); extra columns are dropped (WARN). Every column is stored as text.
-* Records with the wrong number of fields go to anp_bronze.precos_quarantine (never dropped silently) and are
-  counted in audit.quarantine_summary.
+* Records with the wrong number of fields, or with every field blank (empty_record: CSV footers), go to
+  anp_bronze.precos_quarantine (never dropped silently) and are counted in audit.quarantine_summary.
 * Idempotent: ONE transaction per file deletes the rows of that file_key (previous version included), COPYs the new
   rows and quarantine, computes the survey batch statistics (anp_bronze.batch_profile: per collection month and
   product, read by the Grafana dashboard) and marks ctrl.source_file LOADED. Either everything is committed or
@@ -34,7 +34,7 @@ from typing import Any
 import polars as pl
 
 from pipelines.anp.contract import COLUMNS, PIPELINE, SOURCE_KINDS
-from pipelines.anp.reader import ReadResult, csv_path, read_records
+from pipelines.anp.reader import EMPTY_RECORD, ReadResult, csv_path, read_records
 from pipelines.commons import dq, file_ctrl, pg
 from pipelines.commons.audit import get_sink, utcnow_iso
 from pipelines.commons.file_ctrl import FileCtrl, PgFileCtrl
@@ -205,10 +205,16 @@ def load_file(task: TaskRun, conn, ctrl: FileCtrl, row: dict[str, Any], scratch:
                 "created_at": utcnow_iso(), "run_id": task.ctx.run_id, "task_id": TASK_ID, "pipeline": PIPELINE,
                 "ref_month": None, "entity": row["source_kind"], "file_name": key, "reason": f"parse:{reason}",
                 "rows": rows, "repaired": False, "sample": "\n".join(sample)})
-    rate = quarantined / read.records if read.records else 0.0
+    # empty records are footer junk, not broken data: counted apart so they do not trip the quarantine rate
+    empty = sum(1 for q in read.quarantine if q["reason"] == EMPTY_RECORD)
+    rate = (quarantined - empty) / read.records if read.records else 0.0
     task.check("bronze.quarantine_rate", rate <= QUARANTINE_RATE_MAX, observed=round(rate, 6),
-               threshold=QUARANTINE_RATE_MAX, message=f"{key}: {quarantined} of {read.records} records quarantined",
+               threshold=QUARANTINE_RATE_MAX,
+               message=f"{key}: {quarantined - empty} of {read.records} records quarantined (field count)",
                file_key=key)
+    if empty:
+        task.check("bronze.empty_records", False, observed=empty, threshold=0, file_key=key,
+                   message=f"{key}: {empty} all-blank records quarantined ({EMPTY_RECORD})")
     if read.records:
         share = stats["dates_outside_period"] / data.height
         task.check("bronze.dates_outside_period", share <= OUTSIDE_PERIOD_MAX, observed=round(share, 6),
@@ -266,7 +272,8 @@ def load_files(task: TaskRun, *, conn, ctrl: FileCtrl, scratch: Path, kinds: tup
         with conn.cursor() as cur:
             cur.execute(f"ANALYZE {TABLE}")
             cur.execute("SELECT c.relname, c.reltuples::bigint FROM pg_class c JOIN pg_namespace n "
-                        "ON n.oid = c.relnamespace WHERE n.nspname = 'anp_bronze' AND c.relname LIKE 'precos_raw_%'")
+                        "ON n.oid = c.relnamespace WHERE n.nspname = 'anp_bronze' AND c.relname LIKE 'precos_raw_%' "
+                        "AND c.relkind = 'r'")         # partitions only: the partition indexes share the prefix
             estimate = dict(cur.fetchall())
         task.metric(bronze_rows_estimate=estimate)
         log_event(task.log, "bronze_table_stats", f"{TABLE} ~{sum(estimate.values()):,} rows after ANALYZE",

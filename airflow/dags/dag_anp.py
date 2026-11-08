@@ -23,17 +23,17 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from airflow.sdk import DAG, Asset, Param
+from airflow.sdk import DAG, Param
 
 REPO = Path(__file__).resolve().parents[2]          # the DAG folder is a symlink into the repository
 sys.path.insert(0, str(REPO))
 from pipelines.commons.airflow_callbacks import close_running_attempt  # noqa: E402
 from pipelines.commons.airflow_ops import TracedBashOperator  # noqa: E402
+from pipelines.commons.assets import ANP_BRONZE  # noqa: E402
 
 PY = Path.home() / ".envs" / "env-data" / "bin" / "python"
 ENV = {"PYTHONUNBUFFERED": "1"}                     # stream task output to the Airflow log while it runs
 SUBSET = "--kinds {{ params.kinds }} --limit {{ params.limit }}"
-BRONZE = Asset(name="anp_bronze.precos_raw", uri="lambda://anp/bronze/precos_raw")
 
 
 def step(task_id: str, module: str, args: str = "", *, timeout_min: int = 30, retries: int = 1,
@@ -82,7 +82,7 @@ with DAG(
                     retry_delay=timedelta(minutes=10))
     # none_failed: runs when download was skipped (nothing new) but files from an earlier run still wait for bronze
     bronze = step("bronze", "pipelines.anp.anp03_bronze", SUBSET, timeout_min=120, trigger_rule="none_failed",
-                  outlets=[BRONZE])
+                  outlets=[ANP_BRONZE])
     finalize = step("finalize", "pipelines.commons.finalize_run", "--pipeline anp", timeout_min=5, retries=0,
                     trigger_rule="all_done")
     preflight >> discover >> download >> bronze >> finalize
