@@ -1,0 +1,5 @@
+# ANP dashboard (apps/anp_dashboard): its own venv (~/.envs/env-app), never installed in the Airflow/data venvs.
+#   uv venv ~/.envs/env-app && uv pip install --python ~/.envs/env-app/bin/python -r apps/anp_dashboard/requirements.txt
+streamlit==1.66.1          # brings altair (charts) and pandas (Altair's input)
+polars>=1.20,<2
+psycopg[binary]>=3.2,<4

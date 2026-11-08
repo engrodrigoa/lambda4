@@ -1,0 +1,22 @@
+# ANP Streamlit dashboard (lambda4 apps/anp_dashboard). On demand: sudo systemctl start|stop anp-dashboard
+# Install: sudo install -m 0644 infra/systemd/anp-dashboard.service /etc/systemd/system/ && sudo systemctl daemon-reload
+# Listens on localhost only (SSH tunnel -L 8501:127.0.0.1:8501). Reads anp_gold as anp_app_ro over the socket (peer map).
+[Unit]
+Description=ANP fuel prices dashboard (Streamlit, lambda4)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=lambda
+Group=lambda
+WorkingDirectory=/home/lambda/lambda4/apps/anp_dashboard
+Environment=ANP_APP_DSN=dbname=lambda host=/var/run/postgresql user=anp_app_ro application_name=anp_dashboard
+ExecStart=/home/lambda/.envs/env-app/bin/streamlit run app.py --server.port 8501 --server.address 127.0.0.1 --server.headless true
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

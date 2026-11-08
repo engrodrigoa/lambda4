@@ -1,7 +1,9 @@
+{#- grants: the Streamlit role anp_app_ro reads only the two serving marts (added to the project's read roles) -#}
 {{ config(
     materialized = 'incremental',
     incremental_strategy = 'delete+insert',
     unique_key = 'mes_coleta',
+    grants = {'+select': ['anp_app_ro']},
     post_hook = [
         "create index if not exists ix_ag_mun_diario_data on {{ this }} (data_coleta)",
         "create index if not exists ix_ag_mun_diario_local on {{ this }} (uf, municipio, produto)",
