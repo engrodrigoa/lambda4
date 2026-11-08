@@ -1,0 +1,2170 @@
+{
+  "uid": "lambda4-anp-dbt",
+  "title": "ANP · Transformações dbt (silver → gold) e qualidade",
+  "description": "End to end from the bronze files to the dbt layers: freshness and lag between layers, dbt execution health (Airflow anp_dbt + Elementary run/test results), the bronze → silver funnel per month and the price quality gate per consumed batch (anp_dq).",
+  "tags": [
+    "lambda4",
+    "anp",
+    "dbt"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "gproduto",
+        "label": "Produto",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "pg-lambda"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "query": "SELECT DISTINCT produto FROM anp_dq.dq_anp__qualidade_lote",
+        "definition": "SELECT DISTINCT produto FROM anp_dq.dq_anp__qualidade_lote",
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "GASOLINA",
+          "value": "GASOLINA"
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "lambda4"
+      ],
+      "asDropdown": true,
+      "title": "lambda4 dashboards",
+      "includeVars": false,
+      "keepTime": true
+    }
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Ponta a ponta — bronze → silver → gold",
+      "id": 1,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Última coleta na bronze",
+      "description": "Fim do período do arquivo mais recente carregado na bronze (ctrl.source_file).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT to_char(max(period_end), 'YYYY-MM-DD') FROM ctrl.source_file WHERE pipeline = 'anp' AND bronze_status = 'LOADED'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 2,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Última coleta na silver",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT to_char(max(ultima_coleta), 'YYYY-MM-DD') FROM anp_dq.dq_anp__carga_mes",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 3,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Arquivos da bronze ainda fora da silver",
+      "description": "Carregados na bronze depois da última ingestão refletida na silver: o anp_dbt ainda não rodou para eles (ou só trouxeram linhas de uma fonte perdedora, o que é normal).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FROM ctrl.source_file WHERE pipeline = 'anp' AND bronze_status = 'LOADED' AND loaded_at > (SELECT max(ultima_ingestao) FROM anp_dq.dq_anp__carga_mes)",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 4,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Último build da silver",
+      "description": "Tempo desde o último run com sucesso do modelo da silver (Elementary).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT extract(epoch FROM now() - max(created_at)) FROM anp_elementary.dbt_run_results WHERE name = 'anp__precos_coleta' AND status = 'success'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 691200
+              },
+              {
+                "color": "red",
+                "value": 1296000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 5,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Testes com falha (último resultado)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FILTER (WHERE status IN ('fail', 'error')) AS erro, count(*) FILTER (WHERE status = 'warn') AS warn FROM (SELECT DISTINCT ON (test_unique_id) test_unique_id, test_short_name, test_name, table_name, column_name, severity, status, failures, detected_at, test_results_description FROM anp_elementary.elementary_test_results ORDER BY test_unique_id, detected_at DESC) t",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 6,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Preços suspeitos na silver",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FROM anp_dq.dq_anp__precos_suspeitos",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 7,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      }
+    },
+    {
+      "type": "row",
+      "title": "Execução do dbt — Airflow anp_dbt + Elementary",
+      "id": 8,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "anp_dbt runs (Airflow)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-airflow"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-airflow"
+          },
+          "rawSql": "SELECT run_id, state, run_type, queued_at, start_date, end_date, round(extract(epoch FROM coalesce(end_date, now()) - start_date)) AS duration_s FROM dag_run WHERE dag_id = 'anp_dbt' ORDER BY coalesce(start_date, queued_at) DESC LIMIT 30",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "state"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duration_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "queued_at"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "start_date"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "end_date"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 9,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      }
+    },
+    {
+      "type": "table",
+      "title": "Tasks da última execução (Airflow)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-airflow"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-airflow"
+          },
+          "rawSql": "SELECT task_id, state, try_number, start_date, round(duration::numeric) AS duration_s FROM task_instance WHERE dag_id = 'anp_dbt' AND run_id = (SELECT run_id FROM dag_run WHERE dag_id = 'anp_dbt' ORDER BY coalesce(start_date, queued_at) DESC LIMIT 1) ORDER BY start_date NULLS LAST",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "state"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duration_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "start_date"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 10,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      }
+    },
+    {
+      "type": "table",
+      "title": "Modelos: últimas execuções (Elementary)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT created_at, name, status, round(execution_time::numeric, 1) AS seconds, rows_affected, materialization, full_refresh, left(message, 120) AS message FROM anp_elementary.dbt_run_results WHERE resource_type IN ('model', 'seed', 'snapshot') ORDER BY created_at DESC LIMIT 100",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "success": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "error": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "created_at"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 11,
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Duração por modelo",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT created_at AS time, name AS metric, execution_time AS value FROM anp_elementary.dbt_run_results WHERE resource_type = 'model' AND $__timeFilter(created_at) ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "points",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 12,
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      }
+    },
+    {
+      "type": "table",
+      "title": "Testes: último resultado de cada um (Elementary)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT detected_at, table_name, test_short_name, column_name, severity, status, failures, left(test_results_description, 200) AS detalhe FROM (SELECT DISTINCT ON (test_unique_id) test_unique_id, test_short_name, test_name, table_name, column_name, severity, status, failures, detected_at, test_results_description FROM anp_elementary.elementary_test_results ORDER BY test_unique_id, detected_at DESC) t ORDER BY (status NOT IN ('pass')) DESC, detected_at DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "pass": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "warn": {
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "fail": {
+                        "color": "red",
+                        "index": 2
+                      },
+                      "error": {
+                        "color": "red",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "detected_at"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 13,
+      "gridPos": {
+        "h": 10,
+        "w": 16,
+        "x": 0,
+        "y": 23
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Testes por status ao longo do tempo",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT $__timeGroupAlias(detected_at, '1h'), status AS metric, count(*) AS value FROM anp_elementary.elementary_test_results WHERE $__timeFilter(detected_at) GROUP BY 1, 2 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 14,
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 16,
+        "y": 23
+      }
+    },
+    {
+      "type": "row",
+      "title": "Funil bronze → silver por mês (anp_dq.dq_anp__carga_mes)",
+      "id": 15,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Funil dos meses recentes",
+      "description": "Por mês × grupo: o que havia na staging, qual fonte venceu (mensal > semanal > semestral), quanto saiu por fonte perdedora ou duplicata exata, e o que ficou na silver.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT mes_coleta, product_group, fontes_disponiveis, fonte_escolhida, linhas_stg, descartadas_fonte, descartadas_duplicata, linhas_silver, linhas_conflito, linhas_preco_suspeito, dias_com_coleta, ultima_coleta, fl_mes_fechado_sem_mensal AS mes_fechado_sem_mensal FROM anp_dq.dq_anp__carga_mes WHERE mes_coleta >= date_trunc('month', current_date) - interval '12 months' ORDER BY mes_coleta DESC, product_group",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "mes_fechado_sem_mensal"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "true": {
+                        "color": "orange",
+                        "index": 0,
+                        "text": "sim"
+                      },
+                      "false": {
+                        "color": "text",
+                        "index": 1,
+                        "text": "—"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 16,
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Linhas na silver por mês e grupo",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT mes_coleta::timestamp AS time, product_group AS metric, linhas_silver AS value FROM anp_dq.dq_anp__carga_mes ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "timeFrom": "25y",
+      "id": 17,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 44
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Descartes por mês (fonte perdedora / duplicata)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT mes_coleta::timestamp AS time, 'fonte perdedora' AS metric, sum(descartadas_fonte) AS value FROM anp_dq.dq_anp__carga_mes GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT mes_coleta::timestamp AS time, 'duplicata exata' AS metric, sum(descartadas_duplicata) AS value FROM anp_dq.dq_anp__carga_mes GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "timeFrom": "25y",
+      "id": 18,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 44
+      }
+    },
+    {
+      "type": "row",
+      "title": "Portão de qualidade por lote consumido na silver (anp_dq.dq_anp__qualidade_lote)",
+      "id": 19,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 52
+      },
+      "panels": []
+    },
+    {
+      "type": "text",
+      "title": "Como ler",
+      "options": {
+        "mode": "markdown",
+        "content": "Cada **lote** é um mês de coleta × produto na silver (já com uma fonte por mês e sem\nduplicatas). O portão compara a **mediana** do lote com o mês anterior e conta os **preços suspeitos** (fora de\n0,5×–2× da mediana do mês × produto × UF; ex.: gasolina a R$ 99/litro). Os testes do dbt julgam os últimos meses\n(`anp_gate_*` no `dbt_project.yml`); o histórico fica aqui para leitura. GLP é por botijão de 13 kg; GNV por m³."
+      },
+      "id": 20,
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 53
+      }
+    },
+    {
+      "type": "table",
+      "title": "Mediana por lote (mês × produto)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT to_char(mes_coleta, 'YYYY-MM') AS lote, min(fonte) AS fonte, max(preco_mediana) FILTER (WHERE produto = 'GASOLINA') AS \"GASOLINA\", max(preco_mediana) FILTER (WHERE produto = 'GASOLINA ADITIVADA') AS \"GASOLINA ADITIVADA\", max(preco_mediana) FILTER (WHERE produto = 'ETANOL') AS \"ETANOL\", max(preco_mediana) FILTER (WHERE produto = 'DIESEL S10') AS \"DIESEL S10\", max(preco_mediana) FILTER (WHERE produto = 'DIESEL') AS \"DIESEL\", max(preco_mediana) FILTER (WHERE produto = 'GNV') AS \"GNV\", max(preco_mediana) FILTER (WHERE produto = 'GLP') AS \"GLP\", sum(linhas_preco_suspeito) AS suspeitos, max(calculado_em) AS calculado_em FROM anp_dq.dq_anp__qualidade_lote GROUP BY mes_coleta ORDER BY mes_coleta DESC LIMIT 36",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "GASOLINA"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "GASOLINA ADITIVADA"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ETANOL"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "DIESEL S10"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "DIESEL"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "GNV"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "GLP"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "calculado_em"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 21,
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      }
+    },
+    {
+      "type": "table",
+      "title": "Lotes de $gproduto: estatísticas e variação",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT to_char(mes_coleta, 'YYYY-MM') AS lote, fonte, linhas, postos, ufs, preco_min, preco_p01, preco_mediana, preco_medio, preco_p99, preco_max, cv_pct, var_mediana_pct, var_postos_pct, linhas_preco_suspeito, linhas_conflito, arquivos FROM anp_dq.dq_anp__qualidade_lote WHERE produto = '$gproduto' ORDER BY mes_coleta DESC LIMIT 60",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "preco_.*"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "var_.*"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": -15
+                    },
+                    {
+                      "color": "text",
+                      "value": -5
+                    },
+                    {
+                      "color": "orange",
+                      "value": 5
+                    },
+                    {
+                      "color": "red",
+                      "value": 15
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 22,
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 66
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "$gproduto: mediana, p01 e p99 por lote",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT mes_coleta::timestamp AS time, 'p99' AS metric, preco_p99 AS value FROM anp_dq.dq_anp__qualidade_lote WHERE produto = '$gproduto' ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT mes_coleta::timestamp AS time, 'mediana' AS metric, preco_mediana AS value FROM anp_dq.dq_anp__qualidade_lote WHERE produto = '$gproduto' ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT mes_coleta::timestamp AS time, 'p01' AS metric, preco_p01 AS value FROM anp_dq.dq_anp__qualidade_lote WHERE produto = '$gproduto' ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyBRL",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "timeFrom": "25y",
+      "id": 23,
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 76
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "$gproduto: variação da mediana vs mês anterior (%)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT mes_coleta::timestamp AS time, 'var mediana %' AS metric, var_mediana_pct AS value FROM anp_dq.dq_anp__qualidade_lote WHERE produto = '$gproduto' AND var_mediana_pct IS NOT NULL ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "timeFrom": "25y",
+      "id": 24,
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 76
+      }
+    },
+    {
+      "type": "table",
+      "title": "$gproduto por UF nos últimos 3 lotes",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT to_char(mes_coleta, 'YYYY-MM') AS lote, uf, linhas, postos, preco_min, preco_mediana, preco_medio, preco_max, linhas_preco_suspeito FROM anp_dq.dq_anp__qualidade_lote_uf WHERE produto = '$gproduto' AND mes_coleta >= (SELECT max(mes_coleta) FROM anp_dq.dq_anp__qualidade_lote_uf) - interval '2 months' ORDER BY mes_coleta DESC, preco_mediana DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "preco_.*"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 25,
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 85
+      }
+    },
+    {
+      "type": "table",
+      "title": "Preços suspeitos (todas as linhas marcadas)",
+      "description": "Mantidas na silver com fl_preco_suspeito = true; a gold as exclui das médias.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT data_coleta, produto, uf, municipio, revenda, bandeira, valor_venda, preco_mediana_ref, razao_mediana, _source_kind, _file_key FROM anp_dq.dq_anp__precos_suspeitos ORDER BY data_coleta DESC LIMIT 500",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "valor_venda|preco_mediana_ref"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyBRL"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 26,
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 85
+      }
+    },
+    {
+      "type": "row",
+      "title": "Logs do anp_dbt (Airflow → Loki)",
+      "id": 27,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 95
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Linhas de log por nível",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (level) (count_over_time({job=\"airflow-tasks\", dag_id=\"anp_dbt\"} [$__auto]))",
+          "legendFormat": "{{level}}",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 28,
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 96
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Logs das tasks do anp_dbt",
+      "description": "Saída do dbt por task (Cosmos). Precisa do Alloy e do Loki no ar.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{job=\"airflow-tasks\", dag_id=\"anp_dbt\"}",
+          "legendFormat": "",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none",
+        "prettifyLogMessage": false
+      },
+      "id": 29,
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 102
+      }
+    }
+  ]
+}

@@ -18,6 +18,12 @@ vars:
   anp_preco_suspeito_fator_min: 0.5
   anp_preco_suspeito_fator_max: 2.0
   anp_silver_recencia_dias: 21           # newest collection older than this: the weekly files stopped arriving
+  # quality gate per batch (dq_anp__qualidade_lote): only the recent months are judged, history stays visible
+  anp_gate_janela_meses: 3
+  anp_gate_var_mediana_max_pct: 15       # month-on-month change of the median price per product
+  anp_gate_queda_postos_max_pct: 30      # drop of surveyed stations vs the previous month
+  anp_gate_suspeito_max_share: 0.001     # share of suspicious prices in a batch
+  anp_semanal_max_dias: 21               # newest weekly file older than this: the 4-week window is about to lose data
 
 models:
   dbt_lambda:
@@ -36,6 +42,12 @@ models:
       +schema: anp_gold
       +materialized: table
       +tags: ['anp', 'gold']
+  # Elementary (package): every dbt invocation (each Cosmos task included) records its run and test results here;
+  # Grafana reads them. Create/upgrade the tables with `dbt run -s elementary` (not part of the anp_dbt DAG).
+  elementary:
+    +schema: anp_elementary
+    +grants:
+      select: ['dbeaver_ro', 'grafana_ro']
 
 seeds:
   dbt_lambda:

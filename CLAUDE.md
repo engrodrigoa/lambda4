@@ -83,6 +83,14 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
   DAG `anp_dbt` (`airflow/dags/dag_anp_dbt.py`, Cosmos DbtDag, scheduled by asset `ANP_BRONZE` from
   `pipelines/commons/assets.py`; paused, the owner triggers). Git: branch + PR per step (`feat/...`).
   Silver 2026-11-08: ~31.6 M rows, 0 NULL in key/measure/location columns, 22 posto/produto/dia groups with 2 prices.
+- dbt observability (PR B, 2026-11-08): Elementary 0.26 in `dbt_lambda` (schema `anp_elementary`: every invocation,
+  each Cosmos task included, records run/test results; create/upgrade with `dbt run -s elementary`, excluded from the
+  DAG). `anp_dq`: `dq_anp__carga_mes` (bronze -> silver funnel), `dq_anp__qualidade_lote` (price quality gate per
+  batch = month x produto: avg/median/min/max/p01/p99/CV, suspicious prices, MoM median and stations change; tests
+  judge only the last `anp_gate_janela_meses` months), `dq_anp__qualidade_lote_uf`, `dq_anp__precos_suspeitos`;
+  weekly-window tests on `ctrl.source_file` (newest weekly file <= 21 days, no week gap). Grafana board
+  `lambda4-anp-dbt` ("ANP · Transformações dbt e qualidade"): end-to-end freshness/lag, Airflow anp_dbt + Elementary
+  runs/tests, funnel, quality gate, anp_dbt logs (Loki).
 
 ## Model policy (set by the owner)
 - Use **Opus 5.5** to write/generate code (precision); **Sonnet 5.5** for general discussion and planning (token economy). Prioritize Opus 5.5 when in doubt about code correctness.
@@ -180,7 +188,8 @@ Todos os serviços escutam em localhost; acesso remoto por **túnel SSH** (`lab 
 
 ## Ciclo de vida dos serviços (aplicado em 2026-10-18)
 - **Sobem no boot (enabled):** postgresql, airflow (api-server, scheduler, dag-processor, triggerer), elementary-report, grafana, prometheus, alertmanager, pushgateway, node/postgres exporters, tailscaled.
-- **Sob demanda (disabled no boot):** seaweedfs, spark-master/worker/history, spark-thrift, mlflow (depende de seaweedfs), qdrant, ollama, phoenix, loki, alloy, tempo. Ligar/desligar com `sudo systemctl start|stop <unit>` até existir `lab start|stop`.
+- **Sob demanda (disabled no boot):** seaweedfs, spark-master/worker/history, spark-thrift, mlflow (depende de seaweedfs), qdrant, ollama, phoenix.
+- **alloy, loki e tempo sobem no boot desde 2026-11-08** (~200 MB): logs/traces do Airflow e dos pipelines sempre coletados, sem o ruído `Connection refused` do OTel. Ligar/desligar com `sudo systemctl start|stop <unit>` até existir `lab start|stop`.
 - Alertas de "alvo fora do ar" para serviços sob demanda são esperados; refinar regras do Alertmanager depois.
 
 ## Pendências conhecidas

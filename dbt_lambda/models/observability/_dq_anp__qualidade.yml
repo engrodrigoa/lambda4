@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: dq_anp__qualidade_lote
+    description: >
+      Portão de qualidade de preço por lote consumido na silver (mês da coleta x produto): média, mediana, mínimo,
+      máximo, p01/p99, desvio, CV, preços suspeitos e variação da mediana e dos postos contra o mês anterior.
+      Os testes avaliam só os meses do portão (fl_mes_no_portao: últimos anp_gate_janela_meses meses).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [mes_coleta, produto]
+      - dbt_utils.expression_is_true:
+          name: dq_anp_gate_variacao_mediana
+          arguments:
+            expression: "abs(coalesce(var_mediana_pct, 0)) <= {{ var('anp_gate_var_mediana_max_pct') }}"
+          config:
+            severity: warn
+            where: "fl_mes_no_portao"
+      - dbt_utils.expression_is_true:
+          name: dq_anp_gate_share_preco_suspeito
+          arguments:
+            expression: "share_preco_suspeito <= {{ var('anp_gate_suspeito_max_share') }}"
+          config:
+            severity: warn
+            where: "fl_mes_no_portao"
+      - dbt_utils.expression_is_true:
+          name: dq_anp_gate_postos_caiu
+          arguments:
+            expression: "coalesce(var_postos_pct, 0) >= -{{ var('anp_gate_queda_postos_max_pct') }}"
+          config:
+            severity: warn
+            where: "fl_mes_no_portao"
+    columns:
+      - name: preco_mediana
+        data_tests: [not_null]
+      - name: var_mediana_pct
+        description: "% da mediana contra o mês anterior (NULL se o mês anterior não existe para o produto)."
+      - name: preco_medio_limpo
+        description: "Média sem os preços suspeitos: o que a gold usa."
+
+  - name: dq_anp__qualidade_lote_uf
+    description: "Portão por lote e UF (mês x produto x UF): onde está a discrepância quando o lote nacional acusa."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [mes_coleta, produto, uf]
+
+  - name: dq_anp__precos_suspeitos
+    description: "Linhas da silver com fl_preco_suspeito, com a razão contra a mediana do mês x produto x UF."

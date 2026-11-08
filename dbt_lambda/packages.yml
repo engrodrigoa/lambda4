@@ -1,3 +1,5 @@
 packages:
   - package: dbt-labs/dbt_utils
     version: [">=1.3.0", "<2.0.0"]
+  - package: elementary-data/elementary
+    version: 0.26.0          # same as the lab's lambda_dbt (validated with dbt 1.12): run/test results -> anp_elementary
