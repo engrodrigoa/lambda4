@@ -11,7 +11,8 @@ from zoneinfo import ZoneInfo
 
 from airflow.sdk import Asset
 from cosmos import DbtDag, ExecutionConfig, ProfileConfig, ProjectConfig, RenderConfig
-from cosmos.constants import InvocationMode, TestBehavior
+from cosmos.constants import InvocationMode, SourceRenderingBehavior, TestBehavior
+
 
 
 DBT_DIR = Path.home() / "lambda4" / "dbt_lambda"
@@ -29,9 +30,10 @@ anp_dbt = DbtDag(
         dbt_executable_path=str(DBT_DIR / ".venv" / "bin" / "dbt"),
         invocation_mode=InvocationMode.SUBPROCESS,
     ),
-    render_config=RenderConfig(
+     render_config=RenderConfig(
         test_behavior=TestBehavior.AFTER_EACH,
-        emit_datasets=False,          # socket local não gera URI de asset válida no Airflow 3
+        source_rendering_behavior=SourceRenderingBehavior.WITH_TESTS_OR_FRESHNESS,
+        emit_datasets=False,
     ),
     schedule=[BRONZE],
 )
