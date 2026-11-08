@@ -340,3 +340,13 @@ def test_csv_path_extracts_zip_and_cleans_up(tmp_path):
     with pytest.raises(RuntimeError), csv_path(z, "zip", scratch, "boom"):
         raise RuntimeError("load failed")
     assert not list(scratch.iterdir())
+
+
+def test_reader_quarantines_all_blank_records(tmp_path):
+    """CSV footer of ';' only (seen in 3 real ANP files): right field count, no data -> empty_record, not a NULL row."""
+    p = tmp_path / "f.csv"
+    p.write_bytes(csv_bytes("02/01/2014", extra=[";" * 15, ROW.format(d="03/01/2014"), " ;" * 15 + " "]))
+    r = read_records(p)
+    assert r.path == "python" and r.records == 4 and r.df.height == 2
+    assert [(q["_record_no"], q["reason"]) for q in r.quarantine] == [(2, "empty_record"), (4, "empty_record")]
+    assert r.df["_record_no"].to_list() == [1, 3]

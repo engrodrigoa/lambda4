@@ -70,12 +70,19 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
   transaction as the load (`--reprofile` recomputes); `anp_bronze.v_batch_matrix` pivots avg price per product.
   Grafana dashboard `lambda4-anp` ("ANP · Pipeline health & survey batches"): section 1 health (run, tasks, checks,
   ctrl files/events, Airflow runs + task logs, warnings), section 2 batch matrix + price/stations/brands series.
+- Bronze quarantines all-blank CSV footer records as `empty_record` (WARN `bronze.empty_records`).
 - Measured (2026-10-23, 915 k-row semester): read 1.8 s, COPY ~45 k rows/s with psycopg3 (psql/psycopg2 ~100 k/s:
   driver overhead, not indexes), profile ~12 s -> first full load ~30 min. Optional tuning: psycopg2/ADBC COPY.
-- Silver/gold/Streamlit: the owner builds the dbt project himself, end to end (study goal). Agreed design in
-  `docs/architecture-anp.md` §5 (dedup semestral > mensal > semanal; dims posto/endereco(md5)/produto/bandeira/
-  municipio/data; fact + weekly aggregate). dbt: `~/.envs/env-dbt` (dbt-core 1.12.5, dbt-postgres 1.11), Cosmos 1.15.
-  Do not create dbt models for ANP unless asked.
+- dbt project `dbt_lambda/` (owner-built, Claude helps on request; handoff `docs/handoff/2026-11-08_dbt_anp_silver.md`):
+  venv `dbt_lambda/.venv` (dbt-core 1.12.6, dbt-postgres 1.11, dbt_utils 1.4.1), profile in the project (socket +
+  peer, no password). Schemas: `anp_silver` (stg view + `anp__precos_coleta` incremental by month x product_group,
+  one source per month: mensal > semanal > semestral, exact dups collapsed, `fl_conflito_preco`,
+  `fl_preco_suspeito` = price outside [0.5, 2.0] x median of month x produto x UF), `anp_dq`
+  (`dq_anp__carga_mes` funnel), `anp_ref` (seed `anp_produto_grupo`: group, unit, display order), `anp_gold` (next).
+  Read grants: `infra/postgres/anp_dbt_grants.sql` + `+grants` (DBeaver uses role `dbeaver_ro`).
+  DAG `anp_dbt` (`airflow/dags/dag_anp_dbt.py`, Cosmos DbtDag, scheduled by asset `ANP_BRONZE` from
+  `pipelines/commons/assets.py`; paused, the owner triggers). Git: branch + PR per step (`feat/...`).
+  Silver 2026-11-08: ~31.6 M rows, 0 NULL in key/measure/location columns, 22 posto/produto/dia groups with 2 prices.
 
 ## Model policy (set by the owner)
 - Use **Opus 5.5** to write/generate code (precision); **Sonnet 5.5** for general discussion and planning (token economy). Prioritize Opus 5.5 when in doubt about code correctness.

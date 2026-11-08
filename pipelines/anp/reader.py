@@ -2,7 +2,8 @@
 
 Two passes, the first one cheap:
 1. Python's csv module (C reader) walks every record: decodes (UTF-8, then cp1252, then UTF-8 with replacement),
-   counts fields per record and collects the records whose field count differs from the header.
+   counts fields per record and collects the records whose field count differs from the header, or whose every
+   field is blank (reason empty_record: CSV footers of ';' only, which would otherwise land as all-NULL rows).
 2. Clean UTF-8 file -> Polars reads it (fast path). Otherwise the frame is built from the good records of pass 1
    and the bad ones go to quarantine.
 Why not Polars alone: it raises on records with too many fields, but silently pads records with too FEW fields with
@@ -27,6 +28,7 @@ from pipelines.anp.contract import normalize_header
 
 ENCODINGS = ("utf-8-sig", "cp1252")            # tried in order, strictly; then utf-8 with replacement
 RAW_MAX_CHARS = 5000
+EMPTY_RECORD = "empty_record"                  # quarantine reason: every field blank
 csv.field_size_limit(10 * 1024 * 1024)
 
 
@@ -68,6 +70,9 @@ def _scan(path: Path, encoding: str, errors: str = "strict") -> tuple[list[str],
             if len(row) != width:
                 bad.append({"_record_no": records, "reason": f"field_count_{len(row)}",
                             "raw_record": ";".join(row)[:RAW_MAX_CHARS]})
+            elif not any(v.strip() for v in row):
+                # ';;;;;;;;;;;;;;;' (CSV footer seen in 3 ANP files): right field count, no data at all
+                bad.append({"_record_no": records, "reason": EMPTY_RECORD, "raw_record": ";".join(row)})
     return header, records, bad
 
 

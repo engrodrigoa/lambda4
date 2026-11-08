@@ -2,29 +2,116 @@ version: 2
 
 models:
   - name: anp__precos_coleta
-    description: "Silver ANP: uma linha por coleta publicada distinta. Fonte única por mês × grupo (mensal > semanal > semestral). Incremental delete+insert por (mes_coleta, product_group)."
+    description: >
+      Silver ANP: one row per distinct published collection (posto x produto x dia x preço), typed and clean.
+      One source per month x product group (mensal > semanal > semestral, decided per month, not per row);
+      exact duplicates (same row_hash) collapsed into one row (qt_publicacoes). Different prices for the same
+      posto/produto/dia are kept and flagged (fl_conflito_preco); the gold decides how to aggregate them.
+      Prices far from the month x produto x UF median are kept and flagged (fl_preco_suspeito).
+      Incremental delete+insert by (mes_coleta, product_group): a month touched by a new file is rebuilt whole.
+      Contract: every key/measure/location column NOT NULL; nullable only where the source itself does not publish
+      (valor_compra, complemento, bairro, numero, logradouro).
+    data_tests:
+      - dbt_utils.recency:
+          name: anp_silver_recencia
+          arguments:
+            datepart: day
+            field: data_coleta
+            interval: "{{ var('anp_silver_recencia_dias') }}"
+          config:
+            severity: warn
+      # same posto/produto/dia with more than one price: known and flagged (22 groups on 2026-11-08); a jump means
+      # the dedup or the source changed, not a few stations
+      - dbt_utils.unique_combination_of_columns:
+          name: anp_silver_grao_posto_produto_dia
+          arguments:
+            combination_of_columns: [cnpj, produto, data_coleta]
+          config:
+            severity: warn
+            warn_if: ">100"
+            error_if: ">1000"
+      - dbt_utils.expression_is_true:
+          name: anp_silver_preco_suspeito
+          arguments:
+            expression: "not fl_preco_suspeito"
+          config:
+            severity: warn
+            warn_if: ">25"
     columns:
       - name: row_hash
-        description: "Identidade da coleta publicada (hash das colunas brutas)."
+        description: "Identidade da coleta publicada (hash das colunas brutas). Chave técnica da silver."
         data_tests: [unique, not_null]
       - name: mes_coleta
+        description: "Primeiro dia do mês da coleta: unidade de reprocessamento e de escolha da fonte."
         data_tests: [not_null]
       - name: product_group
+        description: "Grupo do produto (seed anp_produto_grupo): gasolina-etanol | diesel-gnv | glp."
         data_tests:
           - not_null
           - accepted_values:
               arguments:
                 values: ['glp', 'gasolina-etanol', 'diesel-gnv']
+      - name: cnpj
+        description: "CNPJ do posto (estabelecimento), 14 dígitos."
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "~ '^[0-9]{14}$'"
+      - name: produto
+        description: "Produto em caixa alta, como publicado (GASOLINA, ETANOL, DIESEL S10, GLP, ...)."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('anp_produto_grupo')
+                field: produto
       - name: data_coleta
         data_tests: [not_null]
+      - name: valor_venda
+        description: "Preço de venda na bomba (GLP: botijão de 13 kg; GNV: m³)."
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: valor_compra
+        description: "Preço de compra do posto. NULL quando a ANP não publicou (maioria a partir de 2016): nunca preenchido."
+      - name: unidade_medida
+        data_tests: [not_null]
+      - name: revenda
+        description: "Razão social do posto."
+        data_tests: [not_null]
+      - name: bandeira
+        data_tests: [not_null]
+      - name: uf
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR',
+                         'PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']
+      - name: municipio
+        data_tests: [not_null]
+      - name: regiao
+        data_tests: [not_null]
+      - name: cep
+        data_tests: [not_null]
+      - name: complemento
+        description: "Opcional na fonte (~76% NULL)."
+      - name: bairro
+        description: "Opcional na fonte (~0,6% NULL). Gold: 'NAO INFORMADO'."
       - name: _source_kind
         data_tests:
+          - not_null
           - accepted_values:
               arguments:
                 values: ['semestral', 'mensal', 'semanal']
       - name: qt_publicacoes
         description: "Quantas vezes a mesma coleta foi publicada na fonte escolhida. Semanal: até 4 (janela móvel)."
         data_tests:
+          - not_null
           - dbt_utils.accepted_range:
               arguments:
                 min_value: 1
@@ -33,4 +120,13 @@ models:
                 where: "_source_kind = 'semanal'"
                 severity: warn
       - name: fl_conflito_preco
-        description: "Mesmo posto/produto/dia com mais de um preço publicado. Apenas monitorado (contagem no dq_anp__carga_mes)."
+        description: "Mesmo posto/produto/dia com mais de um preço publicado. Mantido; contado no dq_anp__carga_mes."
+        data_tests: [not_null]
+      - name: preco_mediana_ref
+        description: "Mediana do valor_venda no mês x produto x UF (referência do portão de qualidade)."
+        data_tests: [not_null]
+      - name: fl_preco_suspeito
+        description: >
+          valor_venda fora de [anp_preco_suspeito_fator_min, anp_preco_suspeito_fator_max] x preco_mediana_ref
+          (vars do dbt_project). Mantido na silver; a gold o exclui das médias.
+        data_tests: [not_null]

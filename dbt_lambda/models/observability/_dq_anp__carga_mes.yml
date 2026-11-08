@@ -25,3 +25,7 @@ models:
       - name: linhas_silver
         description: "NULL = mês existe na staging mas sumiu da silver."
         data_tests: [not_null]
+      - name: linhas_preco_suspeito
+        description: "Linhas da silver com fl_preco_suspeito (fora da faixa da mediana mês x produto x UF)."
+      - name: fl_mes_fechado_sem_mensal
+        description: "Mês fechado (anterior ao mês passado) a partir de anp_mensal_inicio sem arquivo mensal."

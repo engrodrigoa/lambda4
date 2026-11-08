@@ -54,17 +54,37 @@ dedup as (
            row_number() over (partition by row_hash
                               order by _ingested_at desc, _file_key desc, _record_no)  as rn
     from selecionado
+),
+
+unicas as (
+    select
+        row_hash,
+        mes_coleta,
+        product_group,
+        cnpj, produto, data_coleta,
+        valor_venda, valor_compra, unidade_medida,
+        revenda, bandeira, regiao, uf, municipio, bairro, logradouro, numero, complemento, cep,
+        count(*) over (partition by cnpj, produto, data_coleta) > 1 as fl_conflito_preco,
+        qt_publicacoes,
+        source_priority, _source_kind, file_group, _file_key, _record_no, _run_id, _ingested_at
+    from dedup
+    where rn = 1
+),
+
+mediana as (
+    -- price quality gate reference: median of the month x product x UF. Computed on the whole (month x group)
+    -- being rebuilt, so the incremental and the full build give the same reference.
+    select mes_coleta, produto, uf,
+           percentile_cont(0.5) within group (order by valor_venda)::numeric(12,4) as preco_mediana_ref
+    from unicas
+    group by 1, 2, 3
 )
 
 select
-    row_hash,
-    mes_coleta,
-    product_group,
-    cnpj, produto, data_coleta,
-    valor_venda, valor_compra, unidade_medida,
-    revenda, bandeira, regiao, uf, municipio, bairro, logradouro, numero, complemento, cep,
-    count(*) over (partition by cnpj, produto, data_coleta) > 1 as fl_conflito_preco,
-    qt_publicacoes,
-    source_priority, _source_kind, file_group, _file_key, _record_no, _run_id, _ingested_at
-from dedup
-where rn = 1
+    u.*,
+    m.preco_mediana_ref,
+    -- the row stays (silver keeps what was published); gold keeps it out of averages
+    (u.valor_venda < m.preco_mediana_ref * {{ var('anp_preco_suspeito_fator_min') }}
+     or u.valor_venda > m.preco_mediana_ref * {{ var('anp_preco_suspeito_fator_max') }}) as fl_preco_suspeito
+from unicas u
+join mediana m using (mes_coleta, produto, uf)

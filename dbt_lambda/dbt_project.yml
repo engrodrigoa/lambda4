@@ -11,18 +11,40 @@ snapshot-paths: ["snapshots"]
 analysis-paths: ["analyses"]
 clean-targets: ["target", "dbt_packages"]
 
+vars:
+  anp_mensal_inicio: '2023-01-01'        # first month the ANP publishes monthly files (closed months need one)
+  # price quality gate: a price is suspicious outside [min, max] x median of its month x product x UF.
+  # Measured 2026-11-08 on 31.6 M rows: [0.5, 2.0] flags 3 rows; a R$ 99 litre of gasoline is ~15x the median.
+  anp_preco_suspeito_fator_min: 0.5
+  anp_preco_suspeito_fator_max: 2.0
+  anp_silver_recencia_dias: 21           # newest collection older than this: the weekly files stopped arriving
+
 models:
   dbt_lambda:
+    # read-only roles (infra/postgres/anp_dbt_grants.sql creates the schemas, USAGE and default privileges)
+    +grants:
+      select: ['dbeaver_ro', 'grafana_ro']
     silver:
       +schema: anp_silver
       +materialized: view
+      +tags: ['anp', 'silver']
+    observability:
+      +schema: anp_dq
+      +materialized: table
+      +tags: ['anp', 'dq']
     gold:
       +schema: anp_gold
       +materialized: table
+      +tags: ['anp', 'gold']
+
 seeds:
   dbt_lambda:
     +schema: anp_ref
+    +grants:
+      select: ['dbeaver_ro', 'grafana_ro']
     anp_produto_grupo:
       +column_types:
         produto: text
         product_group: text
+        unidade_medida: text
+        ordem: integer

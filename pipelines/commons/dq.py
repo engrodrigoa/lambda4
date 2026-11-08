@@ -75,6 +75,7 @@ SEVERITY: dict[str, Severity] = {
     "bronze.rows_vs_previous_version": Severity.WARN,   # a republished file differs too much from the loaded one
     "bronze.dates_outside_period": Severity.WARN,       # collection dates outside the file's period (misclassified?)
     "bronze.load_failures": Severity.WARN,              # some files failed to load (retried on the next run)
+    "bronze.empty_records": Severity.WARN,              # all-blank records (CSV footer) quarantined as empty_record
     "preflight.postgres": Severity.BLOCK,               # data database reachable and its schemas exist
     "preflight.source_reachable": Severity.WARN,        # source page answers (discover fails anyway if not)
 }

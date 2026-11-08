@@ -24,6 +24,7 @@ silver as (
            count(*)                                      as linhas_silver,
            sum(qt_publicacoes)                           as linhas_fonte_escolhida,
            count(*) filter (where fl_conflito_preco)     as linhas_conflito,
+           count(*) filter (where fl_preco_suspeito)     as linhas_preco_suspeito,
            count(distinct data_coleta)                   as dias_com_coleta,
            max(data_coleta)                              as ultima_coleta,
            max(_ingested_at)                             as ultima_ingestao
@@ -49,6 +50,7 @@ select
 
     -- sinais
     s.linhas_conflito,
+    s.linhas_preco_suspeito,
     s.dias_com_coleta,
     s.ultima_coleta,
     s.ultima_ingestao,
