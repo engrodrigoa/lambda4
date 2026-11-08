@@ -91,6 +91,15 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
   weekly-window tests on `ctrl.source_file` (newest weekly file <= 21 days, no week gap). Grafana board
   `lambda4-anp-dbt` ("ANP · Transformações dbt e qualidade"): end-to-end freshness/lag, Airflow anp_dbt + Elementary
   runs/tests, funnel, quality gate, anp_dbt logs (Loki).
+- Gold (PR C, 2026-11-08, schema `anp_gold`, DAG `anp_dbt_gold` scheduled by asset `ANP_SILVER` emitted at the end
+  of `anp_dbt`; emits `ANP_GOLD`; shared Cosmos config `pipelines/commons/airflow_dbt.py`): `dim_calendario`,
+  `dim_produto` (natural key), `dim_municipio` (md5 uf|municipio, 901), `dim_posto` SCD2 derived from the collection
+  timeline (147,349 versions / 87,058 CNPJs; attributes from fuel rows, GLP-only resellers = `revenda_glp`; a BRANCA
+  stretch between two stretches of the same brand is a source omission and inherits the brand),
+  `fct_preco_diario` (posto x produto x dia, 31.6 M rows, incremental by month, conflicts -> avg/min/max/qt_precos,
+  `fl_preco_suspeito` kept), serving `ag_preco_posto_atual` (last + previous price, 18 months) and
+  `ag_preco_municipio_diario` (sum + count for exact roll-ups) for Streamlit, `ag_preco_semanal_uf` for Grafana/BI.
+  Full build 11.5 min, PASS=48; incremental no-op 15 s.
 
 ## Model policy (set by the owner)
 - Use **Opus 5.5** to write/generate code (precision); **Sonnet 5.5** for general discussion and planning (token economy). Prioritize Opus 5.5 when in doubt about code correctness.

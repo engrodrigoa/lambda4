@@ -1,0 +1,138 @@
+version: 2
+
+models:
+  - name: dim_calendario
+    description: "Calendário diário (2004 até o fim do ano corrente): ano, trimestre, mês, semana ISO, dia da semana."
+    columns:
+      - name: data
+        data_tests: [unique, not_null]
+
+  - name: dim_produto
+    description: "Produto ANP (chave natural: o nome publicado), grupo, unidade de medida e ordem de exibição."
+    columns:
+      - name: produto
+        data_tests: [unique, not_null]
+      - name: unidade_medida
+        data_tests: [not_null]
+
+  - name: dim_municipio
+    description: "Município x UF observado nas coletas. Chave md5(uf|municipio): a ANP não publica o código IBGE."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [uf, municipio]
+    columns:
+      - name: municipio_sk
+        data_tests: [unique, not_null]
+      - name: regiao
+        data_tests: [not_null]
+
+  - name: dim_posto
+    description: >
+      Posto (CNPJ de 14 dígitos = estabelecimento) em SCD2 derivado da linha do tempo das coletas: nova versão a cada
+      mudança de razão social, bandeira ou endereço; validade [valid_from, valid_to), valid_to = 9999-12-31 na
+      versão atual. Atributos das linhas de combustível (no GLP a bandeira é a distribuidora); trecho BRANCA entre
+      dois trechos da mesma marca é omissão da fonte e herda a marca. Revendas só de GLP: tipo_revenda = revenda_glp.
+    columns:
+      - name: posto_sk
+        description: "md5(cnpj | 1ª coleta da versão)."
+        data_tests: [unique, not_null]
+      - name: cnpj
+        data_tests: [not_null]
+      - name: valid_from
+        data_tests: [not_null]
+      - name: valid_to
+        data_tests: [not_null]
+      - name: tipo_revenda
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['posto', 'revenda_glp']
+      - name: bandeira
+        data_tests: [not_null]
+      - name: municipio_sk
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_municipio')
+                field: municipio_sk
+
+  - name: fct_preco_diario
+    description: >
+      Fato de preço: posto x produto x dia de coleta. Conflitos da silver viram média/mín/máx + qt_precos; preços
+      suspeitos ficam marcados (fl_preco_suspeito) e saem dos marts. posto_sk = versão do posto vigente no dia.
+      Incremental por mes_coleta (os meses que a silver recarregou).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [cnpj, produto, data_coleta]
+    columns:
+      - name: posto_sk
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_posto')
+                field: posto_sk
+      - name: produto
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_produto')
+                field: produto
+      - name: municipio_sk
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_municipio')
+                field: municipio_sk
+      - name: data_coleta
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_calendario')
+                field: data
+      - name: preco_venda
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: qt_precos
+        data_tests: [not_null]
+      - name: fl_preco_suspeito
+        data_tests: [not_null]
+
+  - name: ag_preco_municipio_diario
+    description: >
+      Serving (Streamlit, Histórico): dia x município x produto, sem preços suspeitos. soma_preco_venda e qtd_postos
+      para agregar a UF/Brasil e a semanas com média exata.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [data_coleta, uf, municipio, produto]
+
+  - name: ag_preco_posto_atual
+    description: >
+      Serving (Streamlit, cards e matriz): último preço e o anterior de cada posto x produto nos últimos
+      anp_gold_atual_meses meses, atributos da versão atual do posto, sem preços suspeitos.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [cnpj, produto]
+    columns:
+      - name: valor_venda
+        data_tests: [not_null]
+      - name: unidade_de_medida
+        data_tests: [not_null]
+
+  - name: ag_preco_semanal_uf
+    description: "Agregado semanal (Grafana/BI): semana ISO x UF x produto, média exata a partir do diário."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [semana, uf, produto]

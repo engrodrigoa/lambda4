@@ -206,6 +206,67 @@
     },
     {
       "type": "stat",
+      "title": "Última coleta na gold",
+      "description": "Coleta mais recente nos marts de serving (o que o Streamlit mostra).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT to_char(max(data_coleta), 'YYYY-MM-DD') FROM anp_gold.ag_preco_posto_atual",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "id": 4,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
       "title": "Arquivos da bronze ainda fora da silver",
       "description": "Carregados na bronze depois da última ingestão refletida na silver: o anp_dbt ainda não rodou para eles (ou só trouxeram linhas de uma fonte perdedora, o que é normal).",
       "datasource": {
@@ -261,11 +322,11 @@
         "textMode": "auto",
         "justifyMode": "center"
       },
-      "id": 4,
+      "id": 5,
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 8,
+        "x": 12,
         "y": 1
       }
     },
@@ -330,11 +391,11 @@
         "textMode": "auto",
         "justifyMode": "center"
       },
-      "id": 5,
+      "id": 6,
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 12,
+        "x": 16,
         "y": 1
       }
     },
@@ -395,11 +456,11 @@
         "textMode": "auto",
         "justifyMode": "center"
       },
-      "id": 6,
+      "id": 7,
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 16,
+        "x": 20,
         "y": 1
       }
     },
@@ -460,24 +521,24 @@
         "textMode": "auto",
         "justifyMode": "center"
       },
-      "id": 7,
+      "id": 8,
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 20,
-        "y": 1
+        "x": 0,
+        "y": 5
       }
     },
     {
       "type": "row",
       "title": "Execução do dbt — Airflow anp_dbt + Elementary",
-      "id": 8,
+      "id": 9,
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 5
+        "y": 9
       },
       "panels": []
     },
@@ -658,12 +719,12 @@
           "show": false
         }
       },
-      "id": 9,
+      "id": 10,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 6
+        "y": 10
       }
     },
     {
@@ -819,12 +880,12 @@
           "show": false
         }
       },
-      "id": 10,
+      "id": 11,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 6
+        "y": 10
       }
     },
     {
@@ -1010,12 +1071,12 @@
           "show": false
         }
       },
-      "id": 11,
+      "id": 12,
       "gridPos": {
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 14
+        "y": 18
       }
     },
     {
@@ -1074,12 +1135,12 @@
           "sort": "desc"
         }
       },
-      "id": 12,
+      "id": 13,
       "gridPos": {
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 14
+        "y": 18
       }
     },
     {
@@ -1171,12 +1232,12 @@
           "show": false
         }
       },
-      "id": 13,
+      "id": 14,
       "gridPos": {
         "h": 10,
         "w": 16,
         "x": 0,
-        "y": 23
+        "y": 27
       }
     },
     {
@@ -1235,24 +1296,24 @@
           "sort": "desc"
         }
       },
-      "id": 14,
+      "id": 15,
       "gridPos": {
         "h": 10,
         "w": 8,
         "x": 16,
-        "y": 23
+        "y": 27
       }
     },
     {
       "type": "row",
       "title": "Funil bronze → silver por mês (anp_dq.dq_anp__carga_mes)",
-      "id": 15,
+      "id": 16,
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 37
       },
       "panels": []
     },
@@ -1327,12 +1388,12 @@
           "show": false
         }
       },
-      "id": 16,
+      "id": 17,
       "gridPos": {
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 38
       }
     },
     {
@@ -1392,12 +1453,12 @@
         }
       },
       "timeFrom": "25y",
-      "id": 17,
+      "id": 18,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 44
+        "y": 48
       }
     },
     {
@@ -1468,24 +1529,24 @@
         }
       },
       "timeFrom": "25y",
-      "id": 18,
+      "id": 19,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 44
+        "y": 48
       }
     },
     {
       "type": "row",
       "title": "Portão de qualidade por lote consumido na silver (anp_dq.dq_anp__qualidade_lote)",
-      "id": 19,
+      "id": 20,
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 52
+        "y": 56
       },
       "panels": []
     },
@@ -1496,12 +1557,12 @@
         "mode": "markdown",
         "content": "Cada **lote** é um mês de coleta × produto na silver (já com uma fonte por mês e sem\nduplicatas). O portão compara a **mediana** do lote com o mês anterior e conta os **preços suspeitos** (fora de\n0,5×–2× da mediana do mês × produto × UF; ex.: gasolina a R$ 99/litro). Os testes do dbt julgam os últimos meses\n(`anp_gate_*` no `dbt_project.yml`); o histórico fica aqui para leitura. GLP é por botijão de 13 kg; GNV por m³."
       },
-      "id": 20,
+      "id": 21,
       "gridPos": {
         "h": 3,
         "w": 24,
         "x": 0,
-        "y": 53
+        "y": 57
       }
     },
     {
@@ -1665,12 +1726,12 @@
           "show": false
         }
       },
-      "id": 21,
+      "id": 22,
       "gridPos": {
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 56
+        "y": 60
       }
     },
     {
@@ -1774,12 +1835,12 @@
           "show": false
         }
       },
-      "id": 22,
+      "id": 23,
       "gridPos": {
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 66
+        "y": 70
       }
     },
     {
@@ -1860,12 +1921,12 @@
         }
       },
       "timeFrom": "25y",
-      "id": 23,
+      "id": 24,
       "gridPos": {
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 76
+        "y": 80
       }
     },
     {
@@ -1924,12 +1985,12 @@
         }
       },
       "timeFrom": "25y",
-      "id": 24,
+      "id": 25,
       "gridPos": {
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 76
+        "y": 80
       }
     },
     {
@@ -1985,12 +2046,12 @@
           "show": false
         }
       },
-      "id": 25,
+      "id": 26,
       "gridPos": {
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 85
+        "y": 89
       }
     },
     {
@@ -2046,24 +2107,692 @@
           "show": false
         }
       },
-      "id": 26,
+      "id": 27,
       "gridPos": {
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 85
+        "y": 89
       }
     },
     {
       "type": "row",
-      "title": "Logs do anp_dbt (Airflow → Loki)",
-      "id": 27,
+      "title": "Gold — modelo dimensional e marts de serving (anp_dbt_gold)",
+      "id": 28,
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 95
+        "y": 99
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Fato: linhas (posto × produto × dia)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT linhas FROM (SELECT c.relname AS tabela, c.reltuples::bigint AS linhas, pg_total_relation_size(c.oid) AS tamanho FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'anp_gold' AND c.relkind = 'r') t WHERE tabela = 'fct_preco_diario'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 29,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Postos / versões (SCD2)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(DISTINCT cnpj) AS postos, count(*) AS versoes FROM anp_gold.dim_posto",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 30,
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 4,
+        "y": 100
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Postos com preço nos últimos 30 dias",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(DISTINCT cnpj) FROM anp_gold.ag_preco_posto_atual WHERE data_coleta >= (SELECT max(data_coleta) FROM anp_gold.ag_preco_posto_atual) - 30",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 31,
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 9,
+        "y": 100
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Último build da fato",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT extract(epoch FROM now() - max(created_at)) FROM anp_elementary.dbt_run_results WHERE name = 'fct_preco_diario' AND status = 'success'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 691200
+              },
+              {
+                "color": "red",
+                "value": 1296000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 32,
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 14,
+        "y": 100
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Testes da gold com falha",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FILTER (WHERE status IN ('fail', 'error')) AS erro, count(*) FILTER (WHERE status = 'warn') AS warn FROM (SELECT DISTINCT ON (test_unique_id) test_unique_id, test_short_name, test_name, table_name, column_name, severity, status, failures, detected_at, test_results_description FROM anp_elementary.elementary_test_results ORDER BY test_unique_id, detected_at DESC) t WHERE table_name IN (SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'anp_gold')",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 33,
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 19,
+        "y": 100
+      }
+    },
+    {
+      "type": "table",
+      "title": "Tabelas da gold",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT c.relname AS tabela, c.reltuples::bigint AS linhas, pg_total_relation_size(c.oid) AS tamanho FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'anp_gold' AND c.relkind = 'r' ORDER BY tamanho DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "tamanho"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 34,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 104
+      }
+    },
+    {
+      "type": "table",
+      "title": "anp_dbt_gold runs (Airflow)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-airflow"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-airflow"
+          },
+          "rawSql": "SELECT run_id, state, start_date, end_date, round(extract(epoch FROM coalesce(end_date, now()) - start_date)) AS duration_s FROM dag_run WHERE dag_id = 'anp_dbt_gold' ORDER BY coalesce(start_date, queued_at) DESC LIMIT 20",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "state"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duration_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "start_date"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "end_date"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 35,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 104
+      }
+    },
+    {
+      "type": "table",
+      "title": "Versões por posto (SCD2): distribuição",
+      "description": "Quantos postos têm 1, 2, 3... versões (mudanças de razão social, bandeira ou endereço).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT versoes, count(*) AS postos FROM (SELECT cnpj, count(*) AS versoes FROM anp_gold.dim_posto GROUP BY cnpj) t GROUP BY versoes ORDER BY versoes LIMIT 20",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 36,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 104
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Preço médio semanal Brasil (ag_preco_semanal_uf, sem suspeitos)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT semana::timestamp AS time, produto AS metric, sum(preco_medio * qtd_coletas) / sum(qtd_coletas) AS value FROM anp_gold.ag_preco_semanal_uf WHERE produto <> 'GLP' GROUP BY 1, 2 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyBRL",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "timeFrom": "25y",
+      "id": 37,
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 112
+      }
+    },
+    {
+      "type": "row",
+      "title": "Logs do anp_dbt (Airflow → Loki)",
+      "id": 38,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 121
       },
       "panels": []
     },
@@ -2122,12 +2851,12 @@
           "sort": "desc"
         }
       },
-      "id": 28,
+      "id": 39,
       "gridPos": {
         "h": 6,
         "w": 24,
         "x": 0,
-        "y": 96
+        "y": 122
       }
     },
     {
@@ -2158,12 +2887,12 @@
         "dedupStrategy": "none",
         "prettifyLogMessage": false
       },
-      "id": 29,
+      "id": 40,
       "gridPos": {
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 102
+        "y": 128
       }
     }
   ]

@@ -24,6 +24,7 @@ vars:
   anp_gate_queda_postos_max_pct: 30      # drop of surveyed stations vs the previous month
   anp_gate_suspeito_max_share: 0.001     # share of suspicious prices in a batch
   anp_semanal_max_dias: 21               # newest weekly file older than this: the 4-week window is about to lose data
+  anp_gold_atual_meses: 18               # ag_preco_posto_atual: last price searched in this many months
 
 models:
   dbt_lambda:

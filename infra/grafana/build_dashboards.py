@@ -732,6 +732,9 @@ def anp_dbt_board() -> dict:
         desc="Fim do período do arquivo mais recente carregado na bronze (ctrl.source_file)."), 4, 4)
     b.add(stat("Última coleta na silver", sql("""SELECT to_char(max(ultima_coleta), 'YYYY-MM-DD')
         FROM anp_dq.dq_anp__carga_mes"""), text_mode="value"), 4, 4)
+    b.add(stat("Última coleta na gold", sql("""SELECT to_char(max(data_coleta), 'YYYY-MM-DD')
+        FROM anp_gold.ag_preco_posto_atual"""), text_mode="value",
+        desc="Coleta mais recente nos marts de serving (o que o Streamlit mostra)."), 4, 4)
     b.add(stat("Arquivos da bronze ainda fora da silver", sql("""SELECT count(*) FROM ctrl.source_file
         WHERE pipeline = 'anp' AND bronze_status = 'LOADED'
           AND loaded_at > (SELECT max(ultima_ingestao) FROM anp_dq.dq_anp__carga_mes)"""),
@@ -867,6 +870,43 @@ duplicatas). O portão compara a **mediana** do lote com o mês anterior e conta
         desc="Mantidas na silver com fl_preco_suspeito = true; a gold as exclui das médias.",
         overrides=[{"matcher": {"id": "byRegexp", "options": "valor_venda|preco_mediana_ref"}, "properties": [
             {"id": "unit", "value": "currencyBRL"}, {"id": "decimals", "value": 3}]}]), 12, 10)
+
+    # ======================================================================================= gold
+    b.row("Gold — modelo dimensional e marts de serving (anp_dbt_gold)")
+    gold_rows = """SELECT c.relname AS tabela, c.reltuples::bigint AS linhas,
+        pg_total_relation_size(c.oid) AS tamanho FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'anp_gold' AND c.relkind = 'r'"""
+    b.add(stat("Fato: linhas (posto × produto × dia)", sql(f"SELECT linhas FROM ({gold_rows}) t "
+                                                          "WHERE tabela = 'fct_preco_diario'")), 4, 4)
+    b.add(stat("Postos / versões (SCD2)", sql("""SELECT count(DISTINCT cnpj) AS postos, count(*) AS versoes
+        FROM anp_gold.dim_posto""")), 5, 4)
+    b.add(stat("Postos com preço nos últimos 30 dias", sql("""SELECT count(DISTINCT cnpj)
+        FROM anp_gold.ag_preco_posto_atual WHERE data_coleta >= (SELECT max(data_coleta)
+        FROM anp_gold.ag_preco_posto_atual) - 30""")), 5, 4)
+    b.add(stat("Último build da fato", sql(f"""SELECT extract(epoch FROM now() - max(created_at))
+        FROM {ELEM}.dbt_run_results WHERE name = 'fct_preco_diario' AND status = 'success'"""), unit="s",
+        thresholds=[{"color": "green", "value": None}, {"color": "orange", "value": 8 * 86400},
+                    {"color": "red", "value": 15 * 86400}], color_mode="background"), 5, 4)
+    b.add(stat("Testes da gold com falha", sql(f"""SELECT count(*) FILTER (WHERE status IN ('fail', 'error')) AS erro,
+        count(*) FILTER (WHERE status = 'warn') AS warn FROM {LATEST_TESTS}
+        WHERE table_name IN (SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                             WHERE n.nspname = 'anp_gold')"""),
+        thresholds=orange_if_positive(), color_mode="background"), 5, 4)
+    b.add(table("Tabelas da gold", sql(f"{gold_rows} ORDER BY tamanho DESC"),
+                units={"tamanho": "bytes"}), 8, 8)
+    b.add(table("anp_dbt_gold runs (Airflow)", sql("""SELECT run_id, state, start_date, end_date,
+        round(extract(epoch FROM coalesce(end_date, now()) - start_date)) AS duration_s
+        FROM dag_run WHERE dag_id = 'anp_dbt_gold' ORDER BY coalesce(start_date, queued_at) DESC LIMIT 20""",
+        ds=AF), status_cols=("state",), units={"duration_s": "s", "start_date": "dateTimeAsIso",
+                                               "end_date": "dateTimeAsIso"}), 8, 8)
+    b.add(table("Versões por posto (SCD2): distribuição", sql("""SELECT versoes, count(*) AS postos FROM
+        (SELECT cnpj, count(*) AS versoes FROM anp_gold.dim_posto GROUP BY cnpj) t GROUP BY versoes
+        ORDER BY versoes LIMIT 20"""),
+        desc="Quantos postos têm 1, 2, 3... versões (mudanças de razão social, bandeira ou endereço)."), 8, 8)
+    b.add(history(timeseries("Preço médio semanal Brasil (ag_preco_semanal_uf, sem suspeitos)", [sql("""SELECT
+        semana::timestamp AS time, produto AS metric, sum(preco_medio * qtd_coletas) / sum(qtd_coletas) AS value
+        FROM anp_gold.ag_preco_semanal_uf WHERE produto <> 'GLP' GROUP BY 1, 2 ORDER BY 1""", fmt="time_series")],
+        unit="currencyBRL", min0=False)), 24, 9)
 
     # ======================================================================================= logs
     b.row("Logs do anp_dbt (Airflow → Loki)")
