@@ -34,7 +34,7 @@ def latest_run_id() -> str:
 def sql_text(q: str, run_id: str) -> str:
     q = re.sub(r"\$__timeFilter\(([^)]+)\)", r"\1 > now() - interval '30 days'", q)
     q = re.sub(r"\$__timeGroupAlias\(([^,]+),\s*'[^']*'\)", r"date_trunc('hour', \1) AS time", q)
-    q = q.replace("$run_id", run_id)
+    q = q.replace("$run_id", run_id).replace("$gproduto", "GASOLINA")
     for var, value in VAR_SAMPLES.items():
         q = q.replace("${" + var + ":singlequote}", value)
     return q
@@ -82,8 +82,9 @@ def traceql(query: str, run_id: str) -> tuple[bool, str]:
         if re.fullmatch(r"[0-9a-f]{32}", query):
             try:
                 d = http_json(f"http://127.0.0.1:3200/api/v2/traces/{query}")
-                spans = sum(len(ss["spans"]) for rs in d["trace"]["resourceSpans"] for ss in rs["scopeSpans"])
-                return True, f"{spans} spans"
+                resource_spans = (d.get("trace") or {}).get("resourceSpans") or []
+                spans = sum(len(ss.get("spans", [])) for rs in resource_spans for ss in rs.get("scopeSpans", []))
+                return True, f"{spans} spans" if spans else "empty trace (the latest run predates Tempo being up)"
             except urllib.error.HTTPError as exc:
                 return exc.code == 404, f"HTTP {exc.code} (no trace for the latest run)"
         d = http_json("http://127.0.0.1:3200/api/search?" + urllib.parse.urlencode({"q": query, "limit": 5}))

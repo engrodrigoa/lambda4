@@ -109,7 +109,9 @@ def stat(title: str, target: dict, unit: str = "short", desc: str = "", mappings
         defaults["decimals"] = decimals
     return {"type": "stat", "title": title, "description": desc, "datasource": target["datasource"],
             "targets": [target], "fieldConfig": {"defaults": defaults, "overrides": []},
-            "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+            # fields "/.*/": a stat shows only numeric fields by default, so a text value (status, a month) read
+            # "No data"; with every field selected, text values render too
+            "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/.*/", "values": False},
                         "colorMode": color_mode, "graphMode": "none", "textMode": text_mode, "justifyMode": "center"}}
 
 
@@ -702,10 +704,185 @@ per litre (GNV per m³). Filter by *File kind* and *Product* at the top."""), 24
     return b.json()
 
 
+# ----------------------------------------------------------------------------------------------- 5. ANP dbt
+ANP_DBT_DAG = "'anp_dbt'"
+ELEM = "anp_elementary"
+GATE_PRODUTOS = ("GASOLINA", "GASOLINA ADITIVADA", "ETANOL", "DIESEL S10", "DIESEL", "GNV", "GLP")
+GATE_PRODUCT_VAR = {"name": "gproduto", "label": "Produto", "type": "query", "datasource": PG, "refresh": 1,
+                    "sort": 1, "query": "SELECT DISTINCT produto FROM anp_dq.dq_anp__qualidade_lote",
+                    "definition": "SELECT DISTINCT produto FROM anp_dq.dq_anp__qualidade_lote",
+                    "includeAll": False, "multi": False, "current": {"text": "GASOLINA", "value": "GASOLINA"}}
+# latest result of every test (one invocation may run a subset: Cosmos runs one model's tests per task)
+LATEST_TESTS = f"""(SELECT DISTINCT ON (test_unique_id) test_unique_id, test_short_name, test_name, table_name,
+    column_name, severity, status, failures, detected_at, test_results_description
+    FROM {ELEM}.elementary_test_results ORDER BY test_unique_id, detected_at DESC) t"""
+
+
+def anp_dbt_board() -> dict:
+    b = Board("lambda4-anp-dbt", "ANP · Transformações dbt (silver → gold) e qualidade",
+              "End to end from the bronze files to the dbt layers: freshness and lag between layers, dbt execution "
+              "health (Airflow anp_dbt + Elementary run/test results), the bronze → silver funnel per month and the "
+              "price quality gate per consumed batch (anp_dq).", ["lambda4", "anp", "dbt"], time_from="now-7d")
+    b.vars.append(GATE_PRODUCT_VAR)
+
+    # ======================================================================================= end to end
+    b.row("Ponta a ponta — bronze → silver → gold")
+    b.add(stat("Última coleta na bronze", sql("""SELECT to_char(max(period_end), 'YYYY-MM-DD') FROM ctrl.source_file
+        WHERE pipeline = 'anp' AND bronze_status = 'LOADED'"""), text_mode="value",
+        desc="Fim do período do arquivo mais recente carregado na bronze (ctrl.source_file)."), 4, 4)
+    b.add(stat("Última coleta na silver", sql("""SELECT to_char(max(ultima_coleta), 'YYYY-MM-DD')
+        FROM anp_dq.dq_anp__carga_mes"""), text_mode="value"), 4, 4)
+    b.add(stat("Arquivos da bronze ainda fora da silver", sql("""SELECT count(*) FROM ctrl.source_file
+        WHERE pipeline = 'anp' AND bronze_status = 'LOADED'
+          AND loaded_at > (SELECT max(ultima_ingestao) FROM anp_dq.dq_anp__carga_mes)"""),
+        thresholds=orange_if_positive(), color_mode="background",
+        desc="Carregados na bronze depois da última ingestão refletida na silver: o anp_dbt ainda não rodou para "
+             "eles (ou só trouxeram linhas de uma fonte perdedora, o que é normal)."), 4, 4)
+    b.add(stat("Último build da silver", sql(f"""SELECT extract(epoch FROM now() - max(created_at))
+        FROM {ELEM}.dbt_run_results WHERE name = 'anp__precos_coleta' AND status = 'success'"""), unit="s",
+        thresholds=[{"color": "green", "value": None}, {"color": "orange", "value": 8 * 86400},
+                    {"color": "red", "value": 15 * 86400}], color_mode="background",
+        desc="Tempo desde o último run com sucesso do modelo da silver (Elementary)."), 4, 4)
+    b.add(stat("Testes com falha (último resultado)", sql(f"""SELECT count(*) FILTER (WHERE status IN ('fail', 'error'))
+        AS erro, count(*) FILTER (WHERE status = 'warn') AS warn FROM {LATEST_TESTS}"""),
+        thresholds=orange_if_positive(), color_mode="background"), 4, 4)
+    b.add(stat("Preços suspeitos na silver", sql("SELECT count(*) FROM anp_dq.dq_anp__precos_suspeitos"),
+              thresholds=orange_if_positive()), 4, 4)
+
+    # ======================================================================================= dbt execution
+    b.row("Execução do dbt — Airflow anp_dbt + Elementary")
+    b.add(table("anp_dbt runs (Airflow)", sql(f"""SELECT run_id, state, run_type, queued_at, start_date, end_date,
+        round(extract(epoch FROM coalesce(end_date, now()) - start_date)) AS duration_s
+        FROM dag_run WHERE dag_id = {ANP_DBT_DAG} ORDER BY coalesce(start_date, queued_at) DESC LIMIT 30""", ds=AF),
+        status_cols=("state",), units={"duration_s": "s", "queued_at": "dateTimeAsIso",
+                                       "start_date": "dateTimeAsIso", "end_date": "dateTimeAsIso"}), 12, 8)
+    latest_dbt_run = (f"(SELECT run_id FROM dag_run WHERE dag_id = {ANP_DBT_DAG} "
+                      "ORDER BY coalesce(start_date, queued_at) DESC LIMIT 1)")
+    b.add(table("Tasks da última execução (Airflow)", sql(f"""SELECT task_id, state, try_number, start_date,
+        round(duration::numeric) AS duration_s FROM task_instance WHERE dag_id = {ANP_DBT_DAG}
+        AND run_id = {latest_dbt_run} ORDER BY start_date NULLS LAST""", ds=AF), status_cols=("state",),
+        units={"duration_s": "s", "start_date": "dateTimeAsIso"}), 12, 8)
+    b.add(table("Modelos: últimas execuções (Elementary)", sql(f"""SELECT created_at, name, status,
+        round(execution_time::numeric, 1) AS seconds, rows_affected, materialization, full_refresh,
+        left(message, 120) AS message FROM {ELEM}.dbt_run_results
+        WHERE resource_type IN ('model', 'seed', 'snapshot') ORDER BY created_at DESC LIMIT 100"""),
+        status_cols=("status",), units={"seconds": "s", "created_at": "dateTimeAsIso"},
+        overrides=[{"matcher": {"id": "byName", "options": "status"}, "properties": [
+            {"id": "mappings", "value": [{"type": "value", "options": {
+                "success": {"color": "green", "index": 0}, "error": {"color": "red", "index": 1},
+                "skipped": {"color": "text", "index": 2}}}]}]}]), 12, 9)
+    b.add(timeseries("Duração por modelo", [sql(f"""SELECT created_at AS time, name AS metric,
+        execution_time AS value FROM {ELEM}.dbt_run_results WHERE resource_type = 'model'
+        AND $__timeFilter(created_at) ORDER BY 1""", fmt="time_series")], unit="s", draw="points",
+        points="always"), 12, 9)
+    b.add(table("Testes: último resultado de cada um (Elementary)", sql(f"""SELECT detected_at, table_name,
+        test_short_name, column_name, severity, status, failures, left(test_results_description, 200) AS detalhe
+        FROM {LATEST_TESTS} ORDER BY (status NOT IN ('pass')) DESC, detected_at DESC"""),
+        units={"detected_at": "dateTimeAsIso"},
+        overrides=[{"matcher": {"id": "byName", "options": "status"}, "properties": [
+            {"id": "mappings", "value": [{"type": "value", "options": {
+                "pass": {"color": "green", "index": 0}, "warn": {"color": "orange", "index": 1},
+                "fail": {"color": "red", "index": 2}, "error": {"color": "red", "index": 3}}}]},
+            {"id": "custom.cellOptions", "value": {"type": "color-background"}}]}]), 16, 10)
+    b.add(timeseries("Testes por status ao longo do tempo", [sql(f"""SELECT $__timeGroupAlias(detected_at, '1h'),
+        status AS metric, count(*) AS value FROM {ELEM}.elementary_test_results
+        WHERE $__timeFilter(detected_at) GROUP BY 1, 2 ORDER BY 1""", fmt="time_series")], draw="bars",
+        stack=True), 8, 10)
+
+    # ======================================================================================= funnel
+    b.row("Funil bronze → silver por mês (anp_dq.dq_anp__carga_mes)")
+    b.add(table("Funil dos meses recentes", sql("""SELECT mes_coleta, product_group, fontes_disponiveis,
+        fonte_escolhida, linhas_stg, descartadas_fonte, descartadas_duplicata, linhas_silver, linhas_conflito,
+        linhas_preco_suspeito, dias_com_coleta, ultima_coleta, fl_mes_fechado_sem_mensal AS mes_fechado_sem_mensal
+        FROM anp_dq.dq_anp__carga_mes WHERE mes_coleta >= date_trunc('month', current_date) - interval '12 months'
+        ORDER BY mes_coleta DESC, product_group"""),
+        desc="Por mês × grupo: o que havia na staging, qual fonte venceu (mensal > semanal > semestral), quanto "
+             "saiu por fonte perdedora ou duplicata exata, e o que ficou na silver.",
+        overrides=[{"matcher": {"id": "byName", "options": "mes_fechado_sem_mensal"}, "properties": [
+            {"id": "mappings", "value": [{"type": "value", "options": {
+                "true": {"color": "orange", "index": 0, "text": "sim"},
+                "false": {"color": "text", "index": 1, "text": "—"}}}]},
+            {"id": "custom.cellOptions", "value": {"type": "color-text"}}]}]), 24, 10)
+    b.add(history(timeseries("Linhas na silver por mês e grupo", [sql("""SELECT mes_coleta::timestamp AS time,
+        product_group AS metric, linhas_silver AS value FROM anp_dq.dq_anp__carga_mes ORDER BY 1""",
+        fmt="time_series")], draw="bars", stack=True)), 12, 8)
+    b.add(history(timeseries("Descartes por mês (fonte perdedora / duplicata)", [
+        sql("""SELECT mes_coleta::timestamp AS time, 'fonte perdedora' AS metric, sum(descartadas_fonte) AS value
+            FROM anp_dq.dq_anp__carga_mes GROUP BY 1 ORDER BY 1""", fmt="time_series"),
+        sql("""SELECT mes_coleta::timestamp AS time, 'duplicata exata' AS metric, sum(descartadas_duplicata) AS value
+            FROM anp_dq.dq_anp__carga_mes GROUP BY 1 ORDER BY 1""", fmt="time_series", ref="B")],
+        draw="bars", stack=True)), 12, 8)
+
+    # ======================================================================================= quality gate
+    b.row("Portão de qualidade por lote consumido na silver (anp_dq.dq_anp__qualidade_lote)")
+    b.add(text("Como ler", """Cada **lote** é um mês de coleta × produto na silver (já com uma fonte por mês e sem
+duplicatas). O portão compara a **mediana** do lote com o mês anterior e conta os **preços suspeitos** (fora de
+0,5×–2× da mediana do mês × produto × UF; ex.: gasolina a R$ 99/litro). Os testes do dbt julgam os últimos meses
+(`anp_gate_*` no `dbt_project.yml`); o histórico fica aqui para leitura. GLP é por botijão de 13 kg; GNV por m³."""),
+        24, 3)
+    pivot = ", ".join(f"max(preco_mediana) FILTER (WHERE produto = '{p}') AS \"{p}\"" for p in GATE_PRODUTOS)
+    b.add(table("Mediana por lote (mês × produto)", sql(f"""SELECT to_char(mes_coleta, 'YYYY-MM') AS lote,
+        min(fonte) AS fonte, {pivot}, sum(linhas_preco_suspeito) AS suspeitos, max(calculado_em) AS calculado_em
+        FROM anp_dq.dq_anp__qualidade_lote GROUP BY mes_coleta ORDER BY mes_coleta DESC LIMIT 36"""),
+        units={"calculado_em": "dateTimeAsIso"},
+        overrides=[{"matcher": {"id": "byName", "options": p}, "properties": [
+            {"id": "unit", "value": "currencyBRL"}, {"id": "decimals", "value": 3}]} for p in GATE_PRODUTOS]),
+        24, 10)
+    b.add(table("Lotes de $gproduto: estatísticas e variação", sql("""SELECT to_char(mes_coleta, 'YYYY-MM') AS lote,
+        fonte, linhas, postos, ufs, preco_min, preco_p01, preco_mediana, preco_medio, preco_p99, preco_max, cv_pct,
+        var_mediana_pct, var_postos_pct, linhas_preco_suspeito, linhas_conflito, arquivos
+        FROM anp_dq.dq_anp__qualidade_lote WHERE produto = '$gproduto' ORDER BY mes_coleta DESC LIMIT 60"""),
+        overrides=[{"matcher": {"id": "byRegexp", "options": "preco_.*"}, "properties": [
+                       {"id": "unit", "value": "currencyBRL"}, {"id": "decimals", "value": 3}]},
+                   {"matcher": {"id": "byRegexp", "options": "var_.*"}, "properties": [
+                       {"id": "custom.cellOptions", "value": {"type": "color-text"}},
+                       {"id": "color", "value": {"mode": "thresholds"}},
+                       {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                           {"color": "red", "value": None}, {"color": "orange", "value": -15},
+                           {"color": "text", "value": -5}, {"color": "orange", "value": 5},
+                           {"color": "red", "value": 15}]}}]}]), 24, 10)
+    b.add(history(timeseries("$gproduto: mediana, p01 e p99 por lote", [
+        sql("""SELECT mes_coleta::timestamp AS time, 'p99' AS metric, preco_p99 AS value
+            FROM anp_dq.dq_anp__qualidade_lote WHERE produto = '$gproduto' ORDER BY 1""", fmt="time_series"),
+        sql("""SELECT mes_coleta::timestamp AS time, 'mediana' AS metric, preco_mediana AS value
+            FROM anp_dq.dq_anp__qualidade_lote WHERE produto = '$gproduto' ORDER BY 1""", fmt="time_series",
+            ref="B"),
+        sql("""SELECT mes_coleta::timestamp AS time, 'p01' AS metric, preco_p01 AS value
+            FROM anp_dq.dq_anp__qualidade_lote WHERE produto = '$gproduto' ORDER BY 1""", fmt="time_series",
+            ref="C")], unit="currencyBRL", min0=False)), 12, 9)
+    b.add(history(timeseries("$gproduto: variação da mediana vs mês anterior (%)", [sql("""SELECT
+        mes_coleta::timestamp AS time, 'var mediana %' AS metric, var_mediana_pct AS value
+        FROM anp_dq.dq_anp__qualidade_lote WHERE produto = '$gproduto' AND var_mediana_pct IS NOT NULL
+        ORDER BY 1""", fmt="time_series")], unit="percent", draw="bars", min0=False)), 12, 9)
+    b.add(table("$gproduto por UF nos últimos 3 lotes", sql("""SELECT to_char(mes_coleta, 'YYYY-MM') AS lote, uf,
+        linhas, postos, preco_min, preco_mediana, preco_medio, preco_max, linhas_preco_suspeito
+        FROM anp_dq.dq_anp__qualidade_lote_uf WHERE produto = '$gproduto'
+          AND mes_coleta >= (SELECT max(mes_coleta) FROM anp_dq.dq_anp__qualidade_lote_uf) - interval '2 months'
+        ORDER BY mes_coleta DESC, preco_mediana DESC"""),
+        overrides=[{"matcher": {"id": "byRegexp", "options": "preco_.*"}, "properties": [
+            {"id": "unit", "value": "currencyBRL"}, {"id": "decimals", "value": 3}]}]), 12, 10)
+    b.add(table("Preços suspeitos (todas as linhas marcadas)", sql("""SELECT data_coleta, produto, uf, municipio,
+        revenda, bandeira, valor_venda, preco_mediana_ref, razao_mediana, _source_kind, _file_key
+        FROM anp_dq.dq_anp__precos_suspeitos ORDER BY data_coleta DESC LIMIT 500"""),
+        desc="Mantidas na silver com fl_preco_suspeito = true; a gold as exclui das médias.",
+        overrides=[{"matcher": {"id": "byRegexp", "options": "valor_venda|preco_mediana_ref"}, "properties": [
+            {"id": "unit", "value": "currencyBRL"}, {"id": "decimals", "value": 3}]}]), 12, 10)
+
+    # ======================================================================================= logs
+    b.row("Logs do anp_dbt (Airflow → Loki)")
+    b.add(timeseries("Linhas de log por nível", [loki(
+        'sum by (level) (count_over_time({job="airflow-tasks", dag_id="anp_dbt"} [$__auto]))', "{{level}}")],
+        draw="bars", stack=True), 24, 6)
+    b.add(logs("Logs das tasks do anp_dbt", '{job="airflow-tasks", dag_id="anp_dbt"}',
+               desc="Saída do dbt por task (Cosmos). Precisa do Alloy e do Loki no ar."), 24, 12)
+    return b.json()
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for name, board in (("lambda4-rfb-health", pipeline_health()), ("lambda4-airflow", airflow_board()),
-                        ("lambda4-logs", logs_board()), ("lambda4-anp", anp_board())):
+                        ("lambda4-logs", logs_board()), ("lambda4-anp", anp_board()),
+                        ("lambda4-anp-dbt", anp_dbt_board())):
         (OUT / f"{name}.json").write_text(json.dumps(board, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"wrote {OUT / name}.json ({len(board['panels'])} panels)")
 

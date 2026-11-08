@@ -39,3 +39,9 @@ sources:
 
       - name: precos_quarantine
         description: "Registros rejeitados pelo contrato do anp03 (número de campos errado). Não existem em precos_raw."
+  - name: ctrl
+    description: "Controle de arquivos do pipeline Python (ctrl.source_file). Somente leitura para o dbt."
+    schema: ctrl
+    tables:
+      - name: source_file
+        description: "Estado atual por arquivo (pipeline, file_key): período, download, carga na bronze."
