@@ -1,0 +1,31 @@
+version: 2
+
+models:
+  - name: stg_anp__precos
+    description: "Tipagem e limpeza do anp_bronze.precos_raw. Sem dedup. Mesmas regras de parse do PROFILE_SQL (anp03)."
+    columns:
+      - name: cnpj
+        data_tests: [not_null]
+      - name: data_coleta
+        description: "NULL = data fora do formato dd/mm/yyyy (batch_month = 0 no batch_profile)"
+        data_tests:
+          - not_null:
+              config: {severity: warn}
+      - name: valor_venda
+        description: "NULL = valor não numérico"
+        data_tests:
+          - not_null:
+              config: {severity: warn}
+      - name: product_group
+        description: "Derivado do produto via seed anp_produto_grupo. NULL = produto fora do mapeamento."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['glp', 'gasolina-etanol', 'diesel-gnv']
+      - name: source_priority
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3]
