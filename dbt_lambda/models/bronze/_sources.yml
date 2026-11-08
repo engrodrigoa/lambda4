@@ -1,0 +1,9 @@
+version: 2
+sources:
+  - name: anp_bronze
+    description: "bronze layer for raw data ingestion"
+    schema: anp_bronze
+    tables:
+      - name: precos_raw
+        description: "raw data from anp"
+        loaded_at_field: _ingested_at

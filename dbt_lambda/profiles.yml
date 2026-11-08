@@ -1,0 +1,12 @@
+dbt_lambda:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: /var/run/postgresql    
+      port: 5432
+      user: lambda
+      password: ""                  
+      dbname: lambda
+      schema: dbt_dev
+      threads: 4

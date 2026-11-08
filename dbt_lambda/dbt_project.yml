@@ -1,0 +1,28 @@
+name: dbt_lambda
+version: "1.0.0"
+config-version: 2
+profile: dbt_lambda
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
+analysis-paths: ["analyses"]
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  dbt_lambda:
+    silver:
+      +schema: anp_silver
+      +materialized: view
+    gold:
+      +schema: anp_gold
+      +materialized: table
+seeds:
+  dbt_lambda:
+    +schema: anp_ref
+    anp_produto_grupo:
+      +column_types:
+        produto: text
+        product_group: text
