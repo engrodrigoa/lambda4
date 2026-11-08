@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: dq_anp__carga_mes
+    description: "Observabilidade da silver ANP por mês × grupo: fontes disponíveis, fonte escolhida, funil de descartes e sinais de anomalia."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [mes_coleta, product_group]
+      - dbt_utils.expression_is_true:
+          name: dq_anp_silver_reconcilia_fonte_escolhida
+          arguments:
+            expression: >
+              linhas_fonte_escolhida = case fonte_escolhida
+                when 'mensal'    then linhas_mensal
+                when 'semanal'   then linhas_semanal
+                when 'semestral' then linhas_semestral end
+      - dbt_utils.expression_is_true:
+          name: dq_anp_mes_fechado_sem_mensal
+          arguments:
+            expression: "not fl_mes_fechado_sem_mensal"
+          config:
+            severity: warn
+    columns:
+      - name: linhas_silver
+        description: "NULL = mês existe na staging mas sumiu da silver."
+        data_tests: [not_null]
