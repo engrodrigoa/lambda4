@@ -163,5 +163,7 @@ WHERE file_key = 'semestral/ca/2014-S1' ORDER BY id;
   runs every query as `grafana_ro`.
 * **Reload one file:** `UPDATE ctrl.source_file SET bronze_status = 'PENDING' WHERE pipeline = 'anp' AND file_key = '…'`
   and run bronze (its rows are replaced, never duplicated).
+* **Streamlit:** `sudo systemctl start anp-dashboard` → http://localhost:8501 (tunnel `-L 8501:127.0.0.1:8501`);
+  setup and security in `apps/anp_dashboard/README.md`.
 * Services needed: Postgres (always on). Loki/Alloy/Tempo optional (degraded observability is a WARN). No Spark,
   no SeaweedFS.

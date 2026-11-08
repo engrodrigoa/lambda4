@@ -100,6 +100,11 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
   `fl_preco_suspeito` kept), serving `ag_preco_posto_atual` (last + previous price, 18 months) and
   `ag_preco_municipio_diario` (sum + count for exact roll-ups) for Streamlit, `ag_preco_semanal_uf` for Grafana/BI.
   Full build 11.5 min, PASS=48; incremental no-op 15 s.
+- Streamlit app (PR D, 2026-11-08): `apps/anp_dashboard` (ported from datalabs, same filters/tabs/theme) over
+  `ag_preco_posto_atual` + `ag_preco_municipio_diario`; venv `~/.envs/env-app` (Streamlit 1.66.1, psycopg 3); service
+  `anp-dashboard` (`infra/systemd/`, on demand, 127.0.0.1:8501); role `anp_app_ro` (no password: pg_ident map
+  `anp_app` lambda -> anp_app_ro over the socket, `infra/postgres/anp_app_role.sql` +
+  `install_anp_app_peer_map.sh`; SELECT only on the two marts via dbt `grants`, read-only session).
 
 ## Model policy (set by the owner)
 - Use **Opus 5.5** to write/generate code (precision); **Sonnet 5.5** for general discussion and planning (token economy). Prioritize Opus 5.5 when in doubt about code correctness.
@@ -132,7 +137,7 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
   17 min. Tuned the same day (ADR 0005), see Pendências 3.
   Datalake 47 GB used after the run (VACUUM keeps 168 h of old files).
   **2026-10-21 (after the tuning): silver SCD2 reset** (4 `*_hist` tables dropped, files removed from s3://silver, `silver.*` watermarks of the 4 SCD2 entities deleted; bronze 2026-09 + landing kept) to reload from older months. Silver accepts months only oldest -> newest (2026-07, then 08, then 09); source confirmed to publish 07/08/09.
-- Tests: `~/.envs/env-data/bin/python -m pytest` (82 tests; `tests/test_anp_pg.py` = real Postgres inside a rolled-back transaction, skipped if ctrl has ANP rows; `tests/spark/` = local Spark + Delta in a temp folder, never the lake; `-m "not spark"` to skip). Lint: `ruff check pipelines tests airflow infra`.
+- Tests: `~/.envs/env-data/bin/python -m pytest` (82 tests; `tests/test_anp_pg.py` = real Postgres inside a rolled-back transaction, skipped if ctrl has ANP rows; `tests/spark/` = local Spark + Delta in a temp folder, never the lake; `-m "not spark"` to skip). Lint: `ruff check pipelines tests airflow infra apps`.
 - Known issue: the Delta SQL extension breaks `spark.sql(..., args=...)` (UNBOUND_SQL_PARAMETER). Use the DataFrame API; literal SQL only with values from code.
 - Known noise: `ERROR HiveAlterHandler: Failed to alter table` after Delta writes is harmless.
 - **Spark is pinned to 4.1.0** (ADR 0002). Never upgrade Spark or Delta alone.
@@ -163,7 +168,7 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 ## Owner access (from odyssey, via Tailscale + SSH)
 - Postgres for DBeaver: role `dbeaver_ro` (read-only: `audit`, `analytics`, `analytics_elementary` in db `lambda`); the owner sets its password with `sudo -u postgres psql -c "\password dbeaver_ro"`. Never paste passwords in chat or git. `lambda` is superuser (peer auth on the server).
 - DBeaver: use its SSH tab (host `lambdaserver`, user `lambda`) -> Postgres `127.0.0.1:5432`, db `lambda`.
-- One tunnel for the UIs: `ssh -N -L 8080:127.0.0.1:8080 -L 3000:127.0.0.1:3000 -L 8088:127.0.0.1:8088 -L 4040:127.0.0.1:4040 -L 18080:127.0.0.1:18080 -L 5433:127.0.0.1:5432 -L 10000:127.0.0.1:10000 lambda@lambdaserver`.
+- One tunnel for the UIs: `ssh -N -L 8080:127.0.0.1:8080 -L 3000:127.0.0.1:3000 -L 8088:127.0.0.1:8088 -L 4040:127.0.0.1:4040 -L 18080:127.0.0.1:18080 -L 5433:127.0.0.1:5432 -L 10000:127.0.0.1:10000 -L 8501:127.0.0.1:8501 lambda@lambdaserver` (8501 = ANP Streamlit).
 - Reading Delta: `pipelines/commons/lake.py` -> `duckdb_lake()` gives DuckDB views with the metastore names (`rfb_bronze.*`, `ctrl.*`, `audit.quarantine`) over `delta_scan`; Spark (`build_spark(..., master="local[4]")`) for history/time travel/CDF. Notebook: `notebooks/rfb_bronze_explore.ipynb`, kernel **Python (lambda-data)**. Commit notebooks WITHOUT outputs (they contain cadastral data).
 - Bronze lives in SeaweedFS S3 `s3://bronze/rfb/<entity>/` (Delta: `_delta_log/` + `_ref_month=YYYYMM/*.zstd.parquet`), physically under `/mnt/datalake/seaweedfs`.
 
@@ -177,6 +182,7 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
 | spark | master / worker / history / thrift (Spark **4.1.0** em `/opt/spark`, fixado pelo Delta) | 8088 / 8089 / 18080 / 10000 |
 | observabilidade | Prometheus, Alertmanager, Grafana, Loki, Alloy (+OTLP 4318), Tempo (OTLP gRPC 4417), Pushgateway, node/postgres exporters | 9090 / 9093 / 3000 / 3100 / 12345 / 3200 / 9091 / 9100 / 9187 |
 | ia | MLflow, Phoenix, Qdrant, Ollama | 5000 / 6006 / 6333 / 11434 |
+| apps | ANP dashboard (Streamlit, `anp-dashboard`) | 8501 |
 
 Todos os serviços escutam em localhost; acesso remoto por **túnel SSH** (`lab urls`).
 
@@ -197,7 +203,7 @@ Todos os serviços escutam em localhost; acesso remoto por **túnel SSH** (`lab 
 
 ## Ciclo de vida dos serviços (aplicado em 2026-10-18)
 - **Sobem no boot (enabled):** postgresql, airflow (api-server, scheduler, dag-processor, triggerer), elementary-report, grafana, prometheus, alertmanager, pushgateway, node/postgres exporters, tailscaled.
-- **Sob demanda (disabled no boot):** seaweedfs, spark-master/worker/history, spark-thrift, mlflow (depende de seaweedfs), qdrant, ollama, phoenix.
+- **Sob demanda (disabled no boot):** seaweedfs, spark-master/worker/history, spark-thrift, mlflow (depende de seaweedfs), qdrant, ollama, phoenix, anp-dashboard.
 - **alloy, loki e tempo sobem no boot desde 2026-11-08** (~200 MB): logs/traces do Airflow e dos pipelines sempre coletados, sem o ruído `Connection refused` do OTel. Ligar/desligar com `sudo systemctl start|stop <unit>` até existir `lab start|stop`.
 - Alertas de "alvo fora do ar" para serviços sob demanda são esperados; refinar regras do Alertmanager depois.
 

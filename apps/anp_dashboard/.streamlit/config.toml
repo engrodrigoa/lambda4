@@ -1,0 +1,19 @@
+# Palette taken from the reference site (combustivelbr.com.br): near-black surface, green accent.
+[theme]
+base = "dark"
+primaryColor = "#1d9e75"
+backgroundColor = "#0f0f13"
+secondaryBackgroundColor = "#17171d"
+textColor = "#e8e8f0"
+borderColor = "#2a2a35"
+font = "sans serif"
+
+[server]
+headless = true
+runOnSave = false
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"

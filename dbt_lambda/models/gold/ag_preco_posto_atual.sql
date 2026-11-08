@@ -1,5 +1,7 @@
+{#- grants: the Streamlit role anp_app_ro reads only the two serving marts (added to the project's read roles) -#}
 {{ config(
     materialized = 'table',
+    grants = {'+select': ['anp_app_ro']},
     indexes = [{'columns': ['uf', 'municipio']}, {'columns': ['data_coleta']}],
     post_hook = ["analyze {{ this }}"]
 ) }}
