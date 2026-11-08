@@ -285,3 +285,94 @@ WHERE st.step_s > 0 AND l.run_id IS NOT NULL AND l.task_id IS NOT NULL;
 
 GRANT SELECT ON ALL TABLES IN SCHEMA audit TO grafana_ro;
 GRANT SELECT ON ALL TABLES IN SCHEMA audit TO dbeaver_ro;
+
+-- ================================================================ v3 (2026-11-08): chain tracing across asset-scheduled DAGs
+-- One row per (origin, run): which run started the chain (normally a bronze load) and every run downstream of it.
+-- Written by pipelines/commons/chain.py from the Airflow workers: the producer of a chain start on emission, each
+-- consumer when it starts (chain_start) and when it publishes its own asset (publish). A run that consumed events
+-- from several origins (e.g. two bronze loads while the next DAG was paused) has one row per origin.
+-- Run status/duration live in audit.pipeline_run (the dbt DAGs write theirs from chain_start/chain_end).
+CREATE TABLE IF NOT EXISTS audit.pipeline_chain (
+    origin_dag_id   text        NOT NULL,       -- DAG of the run that started the chain
+    origin_run_id   text        NOT NULL,
+    dag_id          text        NOT NULL,       -- this hop
+    run_id          text        NOT NULL,
+    upstream_asset  text,                       -- asset that triggered this run (NULL for the chain start)
+    upstream_dag_id text,
+    upstream_run_id text,
+    triggered_at    timestamptz,                -- timestamp of the triggering asset event
+    started_at      timestamptz,                -- this run started (Airflow dag_run.start_date)
+    emitted_asset   text,                       -- asset this run published for the next hop
+    emitted_at      timestamptz,
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (origin_dag_id, origin_run_id, dag_id, run_id)
+);
+CREATE INDEX IF NOT EXISTS pipeline_chain_run_idx ON audit.pipeline_chain (dag_id, run_id);
+CREATE INDEX IF NOT EXISTS pipeline_chain_started_idx ON audit.pipeline_chain (started_at DESC);
+
+-- ANP: one row per chain, bronze load -> silver run (anp_dbt) -> gold run (anp_dbt_gold); the latest run per hop
+-- when a hop was re-run for the same origin. A manual silver/gold run starts its own chain (no bronze columns).
+CREATE OR REPLACE VIEW audit.v_anp_cadeia AS
+WITH hop AS (
+    SELECT c.*, r.status, r.finished_at,
+           row_number() OVER (PARTITION BY c.origin_dag_id, c.origin_run_id, c.dag_id
+                              ORDER BY coalesce(c.started_at, c.emitted_at) DESC) AS rn
+    FROM audit.pipeline_chain c
+    LEFT JOIN audit.pipeline_run r ON r.run_id = c.run_id
+    WHERE c.origin_dag_id IN ('anp_pipeline', 'anp_dbt', 'anp_dbt_gold')
+),
+origem AS (
+    SELECT DISTINCT origin_dag_id, origin_run_id FROM hop
+)
+SELECT o.origin_dag_id,
+       o.origin_run_id,
+       b.run_id      AS bronze_run_id,
+       b.status      AS bronze_status,
+       b.started_at  AS bronze_started_at,
+       b.emitted_at  AS bronze_emitted_at,
+       s.run_id      AS silver_run_id,
+       s.status      AS silver_status,
+       s.started_at  AS silver_started_at,
+       s.finished_at AS silver_finished_at,
+       s.emitted_at  AS silver_emitted_at,
+       g.run_id      AS gold_run_id,
+       g.status      AS gold_status,
+       g.started_at  AS gold_started_at,
+       g.finished_at AS gold_finished_at,
+       g.emitted_at  AS gold_emitted_at,
+       -- waiting time between hops: emission upstream -> start of the next DAG (paused / queued DAG shows here)
+       round(extract(epoch FROM s.started_at - b.emitted_at))      AS espera_silver_s,
+       round(extract(epoch FROM g.started_at - s.emitted_at))      AS espera_gold_s,
+       round(extract(epoch FROM s.finished_at - s.started_at))     AS duracao_silver_s,
+       round(extract(epoch FROM g.finished_at - g.started_at))     AS duracao_gold_s,
+       -- file in the bronze -> serving marts refreshed (what the Streamlit shows)
+       round(extract(epoch FROM coalesce(g.emitted_at, g.finished_at)
+                                - coalesce(b.started_at, s.started_at, g.started_at))) AS total_s,
+       CASE
+           WHEN g.emitted_at IS NOT NULL                           THEN 'concluida'
+           WHEN g.status = 'FAILED'                                THEN 'falhou na gold'
+           WHEN g.run_id IS NOT NULL                               THEN 'gold em execucao'
+           WHEN s.emitted_at IS NOT NULL                           THEN 'aguardando gold'
+           WHEN s.status = 'FAILED'                                THEN 'falhou na silver'
+           WHEN s.run_id IS NOT NULL                               THEN 'silver em execucao'
+           WHEN b.emitted_at IS NOT NULL                           THEN 'aguardando silver'
+           ELSE 'bronze em execucao'
+       END AS etapa,
+       -- how long the chain has been stuck where it is (NULL once complete or failed)
+       CASE
+           WHEN g.emitted_at IS NULL AND g.run_id IS NULL AND s.emitted_at IS NOT NULL
+               THEN round(extract(epoch FROM now() - s.emitted_at))
+           WHEN s.run_id IS NULL AND b.emitted_at IS NOT NULL
+               THEN round(extract(epoch FROM now() - b.emitted_at))
+       END AS parada_ha_s,
+       greatest(b.started_at, b.emitted_at, s.started_at, s.emitted_at, g.started_at, g.emitted_at) AS ultima_atividade
+FROM origem o
+LEFT JOIN hop b ON b.origin_dag_id = o.origin_dag_id AND b.origin_run_id = o.origin_run_id
+               AND b.dag_id = 'anp_pipeline' AND b.rn = 1
+LEFT JOIN hop s ON s.origin_dag_id = o.origin_dag_id AND s.origin_run_id = o.origin_run_id
+               AND s.dag_id = 'anp_dbt' AND s.rn = 1
+LEFT JOIN hop g ON g.origin_dag_id = o.origin_dag_id AND g.origin_run_id = o.origin_run_id
+               AND g.dag_id = 'anp_dbt_gold' AND g.rn = 1;
+
+GRANT SELECT ON ALL TABLES IN SCHEMA audit TO grafana_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA audit TO dbeaver_ro;

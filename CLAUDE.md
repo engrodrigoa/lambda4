@@ -100,6 +100,15 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
   `fl_preco_suspeito` kept), serving `ag_preco_posto_atual` (last + previous price, 18 months) and
   `ag_preco_municipio_diario` (sum + count for exact roll-ups) for Streamlit, `ag_preco_semanal_uf` for Grafana/BI.
   Full build 11.5 min, PASS=48; incremental no-op 15 s.
+- Chain tracing (PR E, 2026-11-08, `pipelines/commons/chain.py`; DAGs stay chained by assets, no master DAG): the
+  bronze success callback starts the chain; `anp_dbt`/`anp_dbt_gold` have `chain_start` (origin from
+  `triggering_asset_events`: event `extra.chain_origins`, else the producer run; manual run = own origin) ->
+  dbt -> `publish_*` (origins into the asset event extra) -> `chain_end` (only leaf, all_done, closes their
+  `audit.pipeline_run` with `pipeline` = dag id, fails a failed run). `audit.pipeline_chain` (one row per origin x run)
+  + view `audit.v_anp_cadeia` (etapa, waits, durations, total, parada_ha_s). Pushgateway
+  `lambda_chain_{emitted,consumed}_timestamp_seconds{asset,consumer}` -> alert `LambdaChainStalled` (30 min; rule
+  unit test `infra/prometheus/tests/`). Grafana `lambda4-anp-dbt` row "Cadeia de ponta a ponta". The dbt DAGs are
+  paused: the next bronze load alerts until they are unpaused.
 - Streamlit app (PR D, 2026-11-08): `apps/anp_dashboard` (ported from datalabs, same filters/tabs/theme) over
   `ag_preco_posto_atual` + `ag_preco_municipio_diario`; venv `~/.envs/env-app` (Streamlit 1.66.1, psycopg 3); service
   `anp-dashboard` (`infra/systemd/`, on demand, 127.0.0.1:8501); role `anp_app_ro` (no password: pg_ident map
@@ -137,13 +146,13 @@ Regra de acesso: sempre usar o IP/nome Tailscale, nunca o IP da LAN.
   17 min. Tuned the same day (ADR 0005), see Pendências 3.
   Datalake 47 GB used after the run (VACUUM keeps 168 h of old files).
   **2026-10-21 (after the tuning): silver SCD2 reset** (4 `*_hist` tables dropped, files removed from s3://silver, `silver.*` watermarks of the 4 SCD2 entities deleted; bronze 2026-09 + landing kept) to reload from older months. Silver accepts months only oldest -> newest (2026-07, then 08, then 09); source confirmed to publish 07/08/09.
-- Tests: `~/.envs/env-data/bin/python -m pytest` (82 tests; `tests/test_anp_pg.py` = real Postgres inside a rolled-back transaction, skipped if ctrl has ANP rows; `tests/spark/` = local Spark + Delta in a temp folder, never the lake; `-m "not spark"` to skip). Lint: `ruff check pipelines tests airflow infra apps`.
+- Tests: `~/.envs/env-data/bin/python -m pytest` (`tests/test_chain.py` = chain tracing; `tests/test_anp_pg.py` = real Postgres inside a rolled-back transaction, skipped if ctrl has ANP rows; `tests/spark/` = local Spark + Delta in a temp folder, never the lake; `-m "not spark"` to skip). Lint: `ruff check pipelines tests airflow infra apps`.
 - Known issue: the Delta SQL extension breaks `spark.sql(..., args=...)` (UNBOUND_SQL_PARAMETER). Use the DataFrame API; literal SQL only with values from code.
 - Known noise: `ERROR HiveAlterHandler: Failed to alter table` after Delta writes is harmless.
 - **Spark is pinned to 4.1.0** (ADR 0002). Never upgrade Spark or Delta alone.
 
 ## Observability (state 2026-10-21, ADR 0004 phases 1 and 2)
-- Postgres `audit`: pipeline_run, task_run (+airflow_task_id), dq_event, log_event (monthly partitions, 90 d), quarantine_summary, health_check, delta_table_stats, views v_last_runs / v_task_latest / v_dq_open / v_logs_recent / v_trace_spans. DDL: `infra/postgres/audit_schema.sql` (idempotent).
+- Postgres `audit`: pipeline_run, task_run (+airflow_task_id), dq_event, log_event (monthly partitions, 90 d), quarantine_summary, health_check, delta_table_stats, pipeline_chain, views v_last_runs / v_task_latest / v_dq_open / v_logs_recent / v_trace_spans / v_anp_cadeia. DDL: `infra/postgres/audit_schema.sql` (idempotent).
 - Loki: `job=lambda-pipelines` (pipeline JSON events) and `job=airflow-tasks` (raw Airflow task logs, labels dag_id/task_id/attempt/level). Airflow logs live in `/var/log/lambda/airflow`.
 - Prometheus: `job=lambda_pipeline` (Pushgateway batch metrics), `airflow_*` (Airflow OpenTelemetry, standard `OTEL_EXPORTER_OTLP_METRICS_*` env since 2026-10-21 -> Alloy OTLP :4318 -> remote write; Prometheus runs with `--web.enable-remote-write-receiver`). Rules: `infra/prometheus/rules/lambda_pipeline.yml` (reload: `sudo systemctl reload prometheus`).
 - Grafana folder "Lambda4" (renamed from "Lambda4 · RFB" on 2026-10-23): dashboards as code `infra/grafana/build_dashboards.py` -> `infra/grafana/install.sh`; `infra/grafana/validate_dashboards.py` runs every query. Do not edit dashboards in the UI (not persisted).

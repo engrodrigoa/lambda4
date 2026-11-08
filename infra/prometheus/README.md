@@ -11,3 +11,6 @@ Scrape job, first entry under `scrape_configs:` in `/etc/prometheus/prometheus.y
       static_configs: [{targets: ['127.0.0.1:9091']}]
 
 Query pipeline metrics with `{job="lambda_pipeline"}` (not job="pushgateway").
+
+Rules: `rules/lambda_pipeline.yml` -> `/etc/prometheus/rules/lambda_pipeline.yml`, then `sudo systemctl reload prometheus`.
+Unit tests of the rules (no server needed): `promtool test rules infra/prometheus/tests/lambda_pipeline_test.yml`.

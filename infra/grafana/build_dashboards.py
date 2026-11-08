@@ -752,6 +752,52 @@ def anp_dbt_board() -> dict:
     b.add(stat("Preços suspeitos na silver", sql("SELECT count(*) FROM anp_dq.dq_anp__precos_suspeitos"),
               thresholds=orange_if_positive()), 4, 4)
 
+    # ======================================================================================= chain
+    b.row("Cadeia de ponta a ponta — cada carga da bronze até a gold (audit.v_anp_cadeia)")
+    b.add(stat("Última cadeia concluída: arquivo → Streamlit", sql("""SELECT total_s FROM audit.v_anp_cadeia
+        WHERE etapa = 'concluida' ORDER BY gold_emitted_at DESC LIMIT 1"""), unit="s",
+        desc="Do início da carga da bronze até a publicação da gold (marts do Streamlit atualizados)."), 4, 4)
+    b.add(stat("Cadeias paradas (> 30 min)", sql("""SELECT count(*) FROM audit.v_anp_cadeia
+        WHERE parada_ha_s > 1800"""), thresholds=red_if_positive(), color_mode="background",
+        desc="Asset publicado e a próxima DAG não começou: pausada, scheduler parado ou fila (max_active_runs=1)."),
+        4, 4)
+    b.add(stat("Alerta LambdaChainStalled", prom('count(ALERTS{alertname="LambdaChainStalled", '
+                                                  'alertstate="firing"}) or vector(0)'),
+        thresholds=red_if_positive(), color_mode="background",
+        desc="Regra do Prometheus sobre lambda_chain_emitted/consumed_timestamp_seconds (Pushgateway)."), 4, 4)
+    b.add(stat("Cadeias com falha (7 d)", sql("""SELECT count(*) FROM audit.v_anp_cadeia
+        WHERE etapa LIKE 'falhou%' AND ultima_atividade > now() - interval '7 days'"""),
+        thresholds=red_if_positive(), color_mode="background"), 4, 4)
+    b.add(stat("Espera bronze → silver (mediana 30 d)", sql("""SELECT percentile_cont(0.5) WITHIN GROUP
+        (ORDER BY espera_silver_s) FROM audit.v_anp_cadeia WHERE bronze_emitted_at > now() - interval '30 days'"""),
+        unit="s", desc="Da emissão do asset da bronze ao início do anp_dbt."), 4, 4)
+    b.add(stat("Espera silver → gold (mediana 30 d)", sql("""SELECT percentile_cont(0.5) WITHIN GROUP
+        (ORDER BY espera_gold_s) FROM audit.v_anp_cadeia WHERE silver_emitted_at > now() - interval '30 days'"""),
+        unit="s"), 4, 4)
+    etapa_colors = {"concluida": "green", "falhou na silver": "red", "falhou na gold": "red",
+                    "aguardando silver": "orange", "aguardando gold": "orange", "silver em execucao": "blue",
+                    "gold em execucao": "blue", "bronze em execucao": "blue"}
+    b.add(table("Cadeias recentes: onde cada carga está ou parou", sql("""SELECT origin_dag_id AS origem,
+        origin_run_id AS run_origem, etapa, bronze_status, bronze_emitted_at, espera_silver_s, silver_status,
+        duracao_silver_s, espera_gold_s, gold_status, duracao_gold_s, total_s, parada_ha_s, silver_run_id,
+        gold_run_id FROM audit.v_anp_cadeia WHERE $__timeFilter(ultima_atividade)
+        ORDER BY ultima_atividade DESC LIMIT 50"""),
+        desc="Uma linha por origem (carga da bronze; um run manual da silver/gold começa a própria cadeia). "
+             "Esperas = emissão do asset → início da próxima DAG; total = início da bronze → gold publicada.",
+        status_cols=("bronze_status", "silver_status", "gold_status"),
+        units={"bronze_emitted_at": "dateTimeAsIso", "espera_silver_s": "s", "duracao_silver_s": "s",
+               "espera_gold_s": "s", "duracao_gold_s": "s", "total_s": "s", "parada_ha_s": "s"},
+        overrides=[{"matcher": {"id": "byName", "options": "etapa"}, "properties": [
+            {"id": "mappings", "value": [{"type": "value", "options": {
+                k: {"color": v, "index": i} for i, (k, v) in enumerate(etapa_colors.items())}}]},
+            {"id": "custom.cellOptions", "value": {"type": "color-background"}}]}]), 24, 9)
+    b.add(timeseries("Tempo da cadeia por carga (esperas + execuções)", [sql("""SELECT
+        coalesce(bronze_started_at, silver_started_at, gold_started_at) AS time,
+        espera_silver_s AS "espera bronze→silver", duracao_silver_s AS "silver (dbt)",
+        espera_gold_s AS "espera silver→gold", duracao_gold_s AS "gold (dbt)"
+        FROM audit.v_anp_cadeia WHERE $__timeFilter(ultima_atividade) ORDER BY 1""", fmt="table")],
+        unit="s", draw="bars", stack=True, desc="Empilhado por carga: onde o tempo de ponta a ponta é gasto."), 24, 8)
+
     # ======================================================================================= dbt execution
     b.row("Execução do dbt — Airflow anp_dbt + Elementary")
     b.add(table("anp_dbt runs (Airflow)", sql(f"""SELECT run_id, state, run_type, queued_at, start_date, end_date,
