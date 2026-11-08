@@ -47,6 +47,19 @@ groups:
         annotations:
           summary: "RFB pipeline without a successful run for {{ $value | humanizeDuration }}"
           description: "The Receita publishes monthly; more than 40 days without success means a missed month."
+      # chain tracing (pipelines/commons/chain.py): an asset was published for a consumer DAG that has not started
+      # since. Typical causes: the consumer DAG is paused, the scheduler is stuck, or its previous run is still
+      # going (max_active_runs=1). Assets without a consumer (anp_gold) carry no consumer label and are ignored.
+      - alert: LambdaChainStalled
+        expr: |
+          (time() - lambda_chain_emitted_timestamp_seconds{job="lambda_pipeline", consumer!=""} > 1800)
+            unless on(asset, consumer)
+          (lambda_chain_consumed_timestamp_seconds{job="lambda_pipeline"}
+            >= on(asset, consumer) lambda_chain_emitted_timestamp_seconds{job="lambda_pipeline"})
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.consumer }} has not started {{ $value | humanizeDuration }} after {{ $labels.asset }} was published"
+          description: "Is the DAG {{ $labels.consumer }} paused or stuck? The chain stops here: audit.v_anp_cadeia (etapa, parada_ha_s) and Grafana 'ANP · Transformações dbt' > Cadeia."
   - name: lambda-airflow
     rules:
       - alert: AirflowSchedulerStalled

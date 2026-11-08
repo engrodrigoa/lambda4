@@ -12,7 +12,8 @@ exits 99 and everything downstream is skipped. Params let a manual run stay smal
 | bronze | `anp03_bronze` | `anp_bronze.precos_raw` + `precos_quarantine`, ctrl in the same transaction |
 | finalize | `commons.finalize_run` | closes `audit.pipeline_run`, run metrics; fails if the run failed |
 
-Silver and gold are dbt models (owner's project): schedule them on the asset `anp_bronze.precos_raw`.
+Silver and gold are dbt DAGs scheduled by assets: bronze -> `anp_dbt` -> `anp_dbt_gold`. The chain (which bronze load
+each silver/gold run comes from) is traced in `audit.pipeline_chain` / `audit.v_anp_cadeia` (`commons/chain.py`).
 Every task logs JSON events (Loki, `audit.log_event`), records itself in `audit.task_run`, pushes metrics to the
 Pushgateway, evaluates data-quality checks (`audit.dq_event`) and is a span of the run's trace (Tempo).
 """
@@ -30,6 +31,7 @@ sys.path.insert(0, str(REPO))
 from pipelines.commons.airflow_callbacks import close_running_attempt  # noqa: E402
 from pipelines.commons.airflow_ops import TracedBashOperator  # noqa: E402
 from pipelines.commons.assets import ANP_BRONZE  # noqa: E402
+from pipelines.commons.chain import emit_callback  # noqa: E402
 
 PY = Path.home() / ".envs" / "env-data" / "bin" / "python"
 ENV = {"PYTHONUNBUFFERED": "1"}                     # stream task output to the Airflow log while it runs
@@ -81,8 +83,10 @@ with DAG(
     download = step("download", "pipelines.anp.anp02_download", SUBSET, timeout_min=180, retries=2,
                     retry_delay=timedelta(minutes=10))
     # none_failed: runs when download was skipped (nothing new) but files from an earlier run still wait for bronze
+    # success (exit 0) = files loaded = asset event; the callback starts the chain in audit.pipeline_chain and pushes
+    # lambda_chain_emitted_timestamp_seconds (LambdaChainStalled fires if anp_dbt does not pick it up)
     bronze = step("bronze", "pipelines.anp.anp03_bronze", SUBSET, timeout_min=120, trigger_rule="none_failed",
-                  outlets=[ANP_BRONZE])
+                  outlets=[ANP_BRONZE], on_success_callback=emit_callback(ANP_BRONZE, consumer="anp_dbt"))
     finalize = step("finalize", "pipelines.commons.finalize_run", "--pipeline anp", timeout_min=5, retries=0,
                     trigger_rule="all_done")
     preflight >> discover >> download >> bronze >> finalize

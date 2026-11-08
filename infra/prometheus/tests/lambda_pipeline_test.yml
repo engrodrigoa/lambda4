@@ -1,0 +1,28 @@
+# promtool test rules infra/prometheus/tests/lambda_pipeline_test.yml
+rule_files: [../rules/lambda_pipeline.yml]
+evaluation_interval: 1m
+tests:
+  # bronze published at t=0 (epoch 0 -> value 0), anp_dbt never started: fires after 30 min
+  - interval: 1m
+    input_series:
+      - series: 'lambda_chain_emitted_timestamp_seconds{job="lambda_pipeline",pipeline="chain",asset="anp_bronze.precos_raw",consumer="anp_dbt"}'
+        values: '0x60'
+      # silver consumed by gold 5 min after it was published: never fires
+      - series: 'lambda_chain_emitted_timestamp_seconds{job="lambda_pipeline",pipeline="chain",asset="anp_silver.anp__precos_coleta",consumer="anp_dbt_gold"}'
+        values: '0x60'
+      - series: 'lambda_chain_consumed_timestamp_seconds{job="lambda_pipeline",pipeline="chain",asset="anp_silver.anp__precos_coleta",consumer="anp_dbt_gold"}'
+        values: '300x60'
+      # gold has no consumer: never fires
+      - series: 'lambda_chain_emitted_timestamp_seconds{job="lambda_pipeline",pipeline="chain",asset="anp_gold"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: LambdaChainStalled
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: LambdaChainStalled
+        exp_alerts:
+          - exp_labels: {severity: warning, job: lambda_pipeline, pipeline: chain, asset: anp_bronze.precos_raw, consumer: anp_dbt}
+            exp_annotations:
+              summary: "anp_dbt has not started 40m 0s after anp_bronze.precos_raw was published"
+              description: "Is the DAG anp_dbt paused or stuck? The chain stops here: audit.v_anp_cadeia (etapa, parada_ha_s) and Grafana 'ANP · Transformações dbt' > Cadeia."

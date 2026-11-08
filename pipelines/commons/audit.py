@@ -55,6 +55,28 @@ SQL: dict[str, str] = {
                   ORDER BY task_id, attempt DESC) latest
         ) s
         WHERE p.run_id = %(run_id)s""",
+    # runs without TaskRun tasks (the dbt DAGs): the caller knows the counts from Airflow's task states
+    "pipeline_run_close": """
+        UPDATE audit.pipeline_run SET finished_at = %(finished_at)s, status = %(status)s,
+               tasks_total = %(tasks_total)s, tasks_ok = %(tasks_ok)s, tasks_failed = %(tasks_failed)s
+        WHERE run_id = %(run_id)s""",
+    # pipelines/commons/chain.py: merge what each step knows about the (origin, run) hop
+    "pipeline_chain_upsert": """
+        INSERT INTO audit.pipeline_chain AS c (origin_dag_id, origin_run_id, dag_id, run_id, upstream_asset,
+                                               upstream_dag_id, upstream_run_id, triggered_at, started_at,
+                                               emitted_asset, emitted_at)
+        VALUES (%(origin_dag_id)s, %(origin_run_id)s, %(dag_id)s, %(run_id)s, %(upstream_asset)s,
+                %(upstream_dag_id)s, %(upstream_run_id)s, %(triggered_at)s, %(started_at)s,
+                %(emitted_asset)s, %(emitted_at)s)
+        ON CONFLICT (origin_dag_id, origin_run_id, dag_id, run_id) DO UPDATE SET
+            upstream_asset  = coalesce(c.upstream_asset, EXCLUDED.upstream_asset),
+            upstream_dag_id = coalesce(c.upstream_dag_id, EXCLUDED.upstream_dag_id),
+            upstream_run_id = coalesce(c.upstream_run_id, EXCLUDED.upstream_run_id),
+            triggered_at    = least(c.triggered_at, EXCLUDED.triggered_at),
+            started_at      = least(c.started_at, EXCLUDED.started_at),
+            emitted_asset   = coalesce(EXCLUDED.emitted_asset, c.emitted_asset),
+            emitted_at      = greatest(c.emitted_at, EXCLUDED.emitted_at),
+            updated_at      = now()""",
     "task_start": """
         INSERT INTO audit.task_run (run_id, task_id, attempt, pipeline, layer, entity, ref_month, status, started_at,
                                     airflow_task_id)

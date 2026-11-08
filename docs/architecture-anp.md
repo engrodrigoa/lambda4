@@ -135,6 +135,32 @@ Load cost (measured 2026-10-23 on a 915 k-row semester, rolled back): read 1.8 s
 same CSV with `psql \copy` or psycopg2 ~100 k rows/s, so the gap is driver overhead, not the indexes; UNLOGGED would
 be ~285 k rows/s, the price of the WAL); batch profile ~12 s. First full load ≈ 15 min COPY + 8 min profile + reads.
 
+**Chain tracing — which bronze load each silver/gold run comes from** (`pipelines/commons/chain.py`, 2026-11-08).
+The DAGs stay independent and chained by assets (no master DAG: each layer keeps its own schedule, retries and
+backfill). Airflow links an asset-triggered run only to the event one hop back, inside its own database, so the
+origin is carried explicitly:
+
+| Where | What it does |
+|---|---|
+| `anp_pipeline.bronze` `on_success_callback` | exit 0 = files loaded = asset event: starts the chain (origin = this run) in `audit.pipeline_chain`, pushes `lambda_chain_emitted_timestamp_seconds{asset, consumer="anp_dbt"}` |
+| `anp_dbt` / `anp_dbt_gold` `chain_start` (first task) | reads `triggering_asset_events`: origin = the event's `extra.chain_origins`, else the producing run; a manual run is its own origin. Writes the link, opens its `audit.pipeline_run` (`pipeline` = dag id), pushes `lambda_chain_consumed_timestamp_seconds` |
+| `publish_silver` / `publish_gold` (outlet task) | puts the origins in the asset event `extra` for the next hop, records `emitted_at` |
+| `chain_end` (only leaf, `all_done`) | closes `audit.pipeline_run` from Airflow's task states (`ti.get_task_states`), pushes `lambda_pipeline_*{pipeline=<dag>}` (so `LambdaPipelineRunFailed` covers dbt), **fails if any task failed** |
+
+* `audit.v_anp_cadeia`: one row per origin: bronze → silver → gold run ids and status, waiting time between hops
+  (`espera_silver_s`, `espera_gold_s`), dbt durations, `total_s` (bronze start → gold published), `etapa`
+  (`concluida`, `aguardando silver`, `falhou na gold`, ...) and `parada_ha_s` (how long it has been stuck).
+* Alert `LambdaChainStalled` (`infra/prometheus/rules/lambda_pipeline.yml`, unit test in `infra/prometheus/tests/`):
+  an asset was published for a consumer that has not started 30 min later (paused DAG, stuck scheduler, or the
+  previous run still going). **The dbt DAGs are created paused: unpause them, or the next bronze load alerts.**
+* Grafana `lambda4-anp-dbt`, row "Cadeia de ponta a ponta": last complete chain time, stalled chains, the alert,
+  failed chains, median waits, the chain table and a stacked bar of waits + runs per load.
+
+```sql
+SELECT origin_run_id, etapa, espera_silver_s, duracao_silver_s, espera_gold_s, duracao_gold_s, total_s, parada_ha_s
+FROM audit.v_anp_cadeia ORDER BY ultima_atividade DESC LIMIT 10;
+```
+
 Same contract as RFB (ADR 0004): `audit.task_run` / `pipeline_run` / `dq_event` / `log_event` / `health_check` /
 `quarantine_summary`, Pushgateway metrics `job=lambda_pipeline, pipeline=anp`, Loki `job=lambda-pipelines`, one trace
 per run in Tempo (`service.name=lambda-anp`). Useful events: `catalog_parsed`, `discover_done`, `file_downloaded`
@@ -159,6 +185,9 @@ WHERE file_key = 'semestral/ca/2014-S1' ORDER BY id;
 * **Republication check of everything:** trigger with `{"full_recheck": true}`.
 * **Recompute the survey batch statistics** (after changing `PROFILE_SQL`):
   `~/.envs/env-data/bin/python -m pipelines.anp.anp03_bronze --reprofile` (data untouched).
+* **Audit DDL** (after changes, e.g. the chain tables): `psql -d lambda -v ON_ERROR_STOP=1 -f infra/postgres/audit_schema.sql`.
+* **Alert rules:** `promtool test rules infra/prometheus/tests/lambda_pipeline_test.yml`, then
+  `sudo install -m 0644 infra/prometheus/rules/lambda_pipeline.yml /etc/prometheus/rules/ && sudo systemctl reload prometheus`.
 * **Dashboards:** `infra/grafana/install.sh` (build + copy, needs sudo); `python3 infra/grafana/validate_dashboards.py`
   runs every query as `grafana_ro`.
 * **Reload one file:** `UPDATE ctrl.source_file SET bronze_status = 'PENDING' WHERE pipeline = 'anp' AND file_key = '…'`

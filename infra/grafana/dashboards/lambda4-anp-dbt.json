@@ -531,7 +531,7 @@
     },
     {
       "type": "row",
-      "title": "Execução do dbt — Airflow anp_dbt + Elementary",
+      "title": "Cadeia de ponta a ponta — cada carga da bronze até a gold (audit.v_anp_cadeia)",
       "id": 9,
       "collapsed": false,
       "gridPos": {
@@ -539,6 +539,921 @@
         "w": 24,
         "x": 0,
         "y": 9
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Última cadeia concluída: arquivo → Streamlit",
+      "description": "Do início da carga da bronze até a publicação da gold (marts do Streamlit atualizados).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT total_s FROM audit.v_anp_cadeia WHERE etapa = 'concluida' ORDER BY gold_emitted_at DESC LIMIT 1",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 10,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 10
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Cadeias paradas (> 30 min)",
+      "description": "Asset publicado e a próxima DAG não começou: pausada, scheduler parado ou fila (max_active_runs=1).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FROM audit.v_anp_cadeia WHERE parada_ha_s > 1800",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 11,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 10
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Alerta LambdaChainStalled",
+      "description": "Regra do Prometheus sobre lambda_chain_emitted/consumed_timestamp_seconds (Pushgateway).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count(ALERTS{alertname=\"LambdaChainStalled\", alertstate=\"firing\"}) or vector(0)",
+          "legendFormat": "",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 12,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 10
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Cadeias com falha (7 d)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT count(*) FROM audit.v_anp_cadeia WHERE etapa LIKE 'falhou%' AND ultima_atividade > now() - interval '7 days'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 13,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 10
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Espera bronze → silver (mediana 30 d)",
+      "description": "Da emissão do asset da bronze ao início do anp_dbt.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY espera_silver_s) FROM audit.v_anp_cadeia WHERE bronze_emitted_at > now() - interval '30 days'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 14,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 10
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Espera silver → gold (mediana 30 d)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY espera_gold_s) FROM audit.v_anp_cadeia WHERE silver_emitted_at > now() - interval '30 days'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "id": 15,
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 10
+      }
+    },
+    {
+      "type": "table",
+      "title": "Cadeias recentes: onde cada carga está ou parou",
+      "description": "Uma linha por origem (carga da bronze; um run manual da silver/gold começa a própria cadeia). Esperas = emissão do asset → início da próxima DAG; total = início da bronze → gold publicada.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT origin_dag_id AS origem, origin_run_id AS run_origem, etapa, bronze_status, bronze_emitted_at, espera_silver_s, silver_status, duracao_silver_s, espera_gold_s, gold_status, duracao_gold_s, total_s, parada_ha_s, silver_run_id, gold_run_id FROM audit.v_anp_cadeia WHERE $__timeFilter(ultima_atividade) ORDER BY ultima_atividade DESC LIMIT 50",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "etapa"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "concluida": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "falhou na silver": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "falhou na gold": {
+                        "color": "red",
+                        "index": 2
+                      },
+                      "aguardando silver": {
+                        "color": "orange",
+                        "index": 3
+                      },
+                      "aguardando gold": {
+                        "color": "orange",
+                        "index": 4
+                      },
+                      "silver em execucao": {
+                        "color": "blue",
+                        "index": 5
+                      },
+                      "gold em execucao": {
+                        "color": "blue",
+                        "index": 6
+                      },
+                      "bronze em execucao": {
+                        "color": "blue",
+                        "index": 7
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bronze_status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "silver_status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gold_status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "RUNNING": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "SKIPPED": {
+                        "color": "text",
+                        "index": 3
+                      },
+                      "PASS": {
+                        "color": "green",
+                        "index": 4
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "OK": {
+                        "color": "green",
+                        "index": 6
+                      },
+                      "WARN": {
+                        "color": "orange",
+                        "index": 7
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "success": {
+                        "color": "green",
+                        "index": 9
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 10
+                      },
+                      "running": {
+                        "color": "blue",
+                        "index": 11
+                      },
+                      "queued": {
+                        "color": "purple",
+                        "index": 12
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 13
+                      },
+                      "upstream_failed": {
+                        "color": "orange",
+                        "index": 14
+                      },
+                      "up_for_retry": {
+                        "color": "yellow",
+                        "index": 15
+                      },
+                      "scheduled": {
+                        "color": "purple",
+                        "index": 16
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bronze_emitted_at"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "espera_silver_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duracao_silver_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "espera_gold_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duracao_gold_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "total_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "parada_ha_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 16,
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Tempo da cadeia por carga (esperas + execuções)",
+      "description": "Empilhado por carga: onde o tempo de ponta a ponta é gasto.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pg-lambda"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pg-lambda"
+          },
+          "rawSql": "SELECT coalesce(bronze_started_at, silver_started_at, gold_started_at) AS time, espera_silver_s AS \"espera bronze→silver\", duracao_silver_s AS \"silver (dbt)\", espera_gold_s AS \"espera silver→gold\", duracao_gold_s AS \"gold (dbt)\" FROM audit.v_anp_cadeia WHERE $__timeFilter(ultima_atividade) ORDER BY 1",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 17,
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      }
+    },
+    {
+      "type": "row",
+      "title": "Execução do dbt — Airflow anp_dbt + Elementary",
+      "id": 18,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
       },
       "panels": []
     },
@@ -719,12 +1634,12 @@
           "show": false
         }
       },
-      "id": 10,
+      "id": 19,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 10
+        "y": 32
       }
     },
     {
@@ -880,12 +1795,12 @@
           "show": false
         }
       },
-      "id": 11,
+      "id": 20,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 10
+        "y": 32
       }
     },
     {
@@ -1071,12 +1986,12 @@
           "show": false
         }
       },
-      "id": 12,
+      "id": 21,
       "gridPos": {
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 18
+        "y": 40
       }
     },
     {
@@ -1135,12 +2050,12 @@
           "sort": "desc"
         }
       },
-      "id": 13,
+      "id": 22,
       "gridPos": {
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 18
+        "y": 40
       }
     },
     {
@@ -1232,12 +2147,12 @@
           "show": false
         }
       },
-      "id": 14,
+      "id": 23,
       "gridPos": {
         "h": 10,
         "w": 16,
         "x": 0,
-        "y": 27
+        "y": 49
       }
     },
     {
@@ -1296,24 +2211,24 @@
           "sort": "desc"
         }
       },
-      "id": 15,
+      "id": 24,
       "gridPos": {
         "h": 10,
         "w": 8,
         "x": 16,
-        "y": 27
+        "y": 49
       }
     },
     {
       "type": "row",
       "title": "Funil bronze → silver por mês (anp_dq.dq_anp__carga_mes)",
-      "id": 16,
+      "id": 25,
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 37
+        "y": 59
       },
       "panels": []
     },
@@ -1388,12 +2303,12 @@
           "show": false
         }
       },
-      "id": 17,
+      "id": 26,
       "gridPos": {
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 38
+        "y": 60
       }
     },
     {
@@ -1453,12 +2368,12 @@
         }
       },
       "timeFrom": "25y",
-      "id": 18,
+      "id": 27,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 48
+        "y": 70
       }
     },
     {
@@ -1529,24 +2444,24 @@
         }
       },
       "timeFrom": "25y",
-      "id": 19,
+      "id": 28,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 48
+        "y": 70
       }
     },
     {
       "type": "row",
       "title": "Portão de qualidade por lote consumido na silver (anp_dq.dq_anp__qualidade_lote)",
-      "id": 20,
+      "id": 29,
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 56
+        "y": 78
       },
       "panels": []
     },
@@ -1557,12 +2472,12 @@
         "mode": "markdown",
         "content": "Cada **lote** é um mês de coleta × produto na silver (já com uma fonte por mês e sem\nduplicatas). O portão compara a **mediana** do lote com o mês anterior e conta os **preços suspeitos** (fora de\n0,5×–2× da mediana do mês × produto × UF; ex.: gasolina a R$ 99/litro). Os testes do dbt julgam os últimos meses\n(`anp_gate_*` no `dbt_project.yml`); o histórico fica aqui para leitura. GLP é por botijão de 13 kg; GNV por m³."
       },
-      "id": 21,
+      "id": 30,
       "gridPos": {
         "h": 3,
         "w": 24,
         "x": 0,
-        "y": 57
+        "y": 79
       }
     },
     {
@@ -1726,12 +2641,12 @@
           "show": false
         }
       },
-      "id": 22,
+      "id": 31,
       "gridPos": {
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 60
+        "y": 82
       }
     },
     {
@@ -1835,12 +2750,12 @@
           "show": false
         }
       },
-      "id": 23,
+      "id": 32,
       "gridPos": {
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 70
+        "y": 92
       }
     },
     {
@@ -1921,12 +2836,12 @@
         }
       },
       "timeFrom": "25y",
-      "id": 24,
+      "id": 33,
       "gridPos": {
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 80
+        "y": 102
       }
     },
     {
@@ -1985,12 +2900,12 @@
         }
       },
       "timeFrom": "25y",
-      "id": 25,
+      "id": 34,
       "gridPos": {
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 80
+        "y": 102
       }
     },
     {
@@ -2046,12 +2961,12 @@
           "show": false
         }
       },
-      "id": 26,
+      "id": 35,
       "gridPos": {
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 89
+        "y": 111
       }
     },
     {
@@ -2107,24 +3022,24 @@
           "show": false
         }
       },
-      "id": 27,
+      "id": 36,
       "gridPos": {
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 89
+        "y": 111
       }
     },
     {
       "type": "row",
       "title": "Gold — modelo dimensional e marts de serving (anp_dbt_gold)",
-      "id": 28,
+      "id": 37,
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 99
+        "y": 121
       },
       "panels": []
     },
@@ -2181,12 +3096,12 @@
         "textMode": "auto",
         "justifyMode": "center"
       },
-      "id": 29,
+      "id": 38,
       "gridPos": {
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 100
+        "y": 122
       }
     },
     {
@@ -2242,12 +3157,12 @@
         "textMode": "auto",
         "justifyMode": "center"
       },
-      "id": 30,
+      "id": 39,
       "gridPos": {
         "h": 4,
         "w": 5,
         "x": 4,
-        "y": 100
+        "y": 122
       }
     },
     {
@@ -2303,12 +3218,12 @@
         "textMode": "auto",
         "justifyMode": "center"
       },
-      "id": 31,
+      "id": 40,
       "gridPos": {
         "h": 4,
         "w": 5,
         "x": 9,
-        "y": 100
+        "y": 122
       }
     },
     {
@@ -2372,12 +3287,12 @@
         "textMode": "auto",
         "justifyMode": "center"
       },
-      "id": 32,
+      "id": 41,
       "gridPos": {
         "h": 4,
         "w": 5,
         "x": 14,
-        "y": 100
+        "y": 122
       }
     },
     {
@@ -2437,12 +3352,12 @@
         "textMode": "auto",
         "justifyMode": "center"
       },
-      "id": 33,
+      "id": 42,
       "gridPos": {
         "h": 4,
         "w": 5,
         "x": 19,
-        "y": 100
+        "y": 122
       }
     },
     {
@@ -2494,12 +3409,12 @@
           "show": false
         }
       },
-      "id": 34,
+      "id": 43,
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 104
+        "y": 126
       }
     },
     {
@@ -2667,12 +3582,12 @@
           "show": false
         }
       },
-      "id": 35,
+      "id": 44,
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 104
+        "y": 126
       }
     },
     {
@@ -2711,12 +3626,12 @@
           "show": false
         }
       },
-      "id": 36,
+      "id": 45,
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 104
+        "y": 126
       }
     },
     {
@@ -2775,24 +3690,24 @@
         }
       },
       "timeFrom": "25y",
-      "id": 37,
+      "id": 46,
       "gridPos": {
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 112
+        "y": 134
       }
     },
     {
       "type": "row",
       "title": "Logs do anp_dbt (Airflow → Loki)",
-      "id": 38,
+      "id": 47,
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 121
+        "y": 143
       },
       "panels": []
     },
@@ -2851,12 +3766,12 @@
           "sort": "desc"
         }
       },
-      "id": 39,
+      "id": 48,
       "gridPos": {
         "h": 6,
         "w": 24,
         "x": 0,
-        "y": 122
+        "y": 144
       }
     },
     {
@@ -2887,12 +3802,12 @@
         "dedupStrategy": "none",
         "prettifyLogMessage": false
       },
-      "id": 40,
+      "id": 49,
       "gridPos": {
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 128
+        "y": 150
       }
     }
   ]

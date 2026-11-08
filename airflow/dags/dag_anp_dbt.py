@@ -9,7 +9,9 @@ Cada modelo vira uma task de run + test: teste com severity error bloqueia o dow
 | silver | `stg_anp__precos` (view) → `anp__precos_coleta` (incremental por mês × grupo) |
 | anp_dq | funil `dq_anp__carga_mes`, portão de qualidade `dq_anp__qualidade_lote(_uf)`, `dq_anp__precos_suspeitos` |
 
-No fim, `publish_silver` emite o asset `anp_silver.anp__precos_coleta`, que dispara o `anp_dbt_gold`.
+`chain_start` liga a execução à carga da bronze de origem; no fim, `publish_silver` emite o asset
+`anp_silver.anp__precos_coleta` (levando a origem no extra), que dispara o `anp_dbt_gold`; `chain_end` fecha o run
+em `audit.pipeline_run` e falha se algo falhou. Cadeia: `audit.v_anp_cadeia`.
 Observabilidade: o Elementary grava cada task em `anp_elementary`; o board Grafana "ANP · Transformações dbt".
 Keep the words "airflow" and "dag" in this file: the dag-processor's safe mode skips files without both.
 """
@@ -18,7 +20,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from airflow.providers.standard.operators.empty import EmptyOperator
+from airflow.providers.standard.operators.python import PythonOperator
 from airflow.sdk import DAG
 from cosmos import DbtTaskGroup
 
@@ -26,6 +28,7 @@ REPO = Path(__file__).resolve().parents[2]          # the DAG folder is a symlin
 sys.path.insert(0, str(REPO))
 from pipelines.commons.airflow_dbt import EXECUTION, PROFILE, PROJECT, render  # noqa: E402
 from pipelines.commons.assets import ANP_BRONZE, ANP_SILVER  # noqa: E402
+from pipelines.commons.chain import chain_end, chain_start, publish  # noqa: E402
 
 with DAG(
     dag_id="anp_dbt",
@@ -46,5 +49,14 @@ with DAG(
         project_config=PROJECT, profile_config=PROFILE, execution_config=EXECUTION,
         render_config=render(exclude=["tag:gold"]),
     )
-    publish_silver = EmptyOperator(task_id="publish_silver", outlets=[ANP_SILVER])
-    silver >> publish_silver
+    # chain tracing (pipelines/commons/chain.py): link this run to the bronze load(s) it comes from, open/close its
+    # audit.pipeline_run, carry the origins in the published asset event; chain_end is the only leaf and fails a
+    # failed run (all_done would otherwise make a broken run green)
+    start = PythonOperator(task_id="chain_start", python_callable=chain_start, retries=2,
+                           execution_timeout=timedelta(minutes=5))
+    publish_silver = PythonOperator(task_id="publish_silver", outlets=[ANP_SILVER],
+                                    python_callable=publish(ANP_SILVER, consumer="anp_dbt_gold"),
+                                    execution_timeout=timedelta(minutes=5))
+    end = PythonOperator(task_id="chain_end", python_callable=chain_end, trigger_rule="all_done", retries=0,
+                         execution_timeout=timedelta(minutes=5))
+    start >> silver >> publish_silver >> end
