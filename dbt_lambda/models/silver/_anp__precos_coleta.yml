@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: anp__precos_coleta
+    description: "Silver ANP: uma linha por coleta publicada distinta. Fonte única por mês × grupo (mensal > semanal > semestral). Incremental delete+insert por (mes_coleta, product_group)."
+    columns:
+      - name: row_hash
+        description: "Identidade da coleta publicada (hash das colunas brutas)."
+        data_tests: [unique, not_null]
+      - name: mes_coleta
+        data_tests: [not_null]
+      - name: product_group
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['glp', 'gasolina-etanol', 'diesel-gnv']
+      - name: data_coleta
+        data_tests: [not_null]
+      - name: _source_kind
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['semestral', 'mensal', 'semanal']
+      - name: qt_publicacoes
+        description: "Quantas vezes a mesma coleta foi publicada na fonte escolhida. Semanal: até 4 (janela móvel)."
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 4
+              config:
+                where: "_source_kind = 'semanal'"
+                severity: warn
+      - name: fl_conflito_preco
+        description: "Mesmo posto/produto/dia com mais de um preço publicado. Apenas monitorado (contagem no dq_anp__carga_mes)."

@@ -1,9 +1,41 @@
 version: 2
+
 sources:
   - name: anp_bronze
-    description: "bronze layer for raw data ingestion"
+    description: "Camada bronze da ANP, gravada pelo pipeline Python (DAG anp_pipeline, task anp03_bronze). Somente leitura para o dbt."
     schema: anp_bronze
     tables:
       - name: precos_raw
-        description: "raw data from anp"
+        description: "Registros como publicados pela ANP (todas as colunas text) + linhagem. Grão técnico: _file_key + _record_no. Particionada por _source_kind."
         loaded_at_field: _ingested_at
+        config:
+          freshness:
+            warn_after: {count: 8, period: day}     # semanal: 1 semana + folga
+            error_after: {count: 15, period: day}   # janela de 4 semanas ainda recupera, mas já é falha de execução
+        data_tests:
+          - dbt_utils.unique_combination_of_columns:
+              arguments:
+                combination_of_columns: [_file_key, _record_no]
+        columns:
+          - name: _source_kind
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ['semestral', 'mensal', 'semanal']
+          - name: _file_key
+            data_tests: [not_null]
+          - name: _file_sha256
+            data_tests: [not_null]
+          - name: _ingested_at
+            data_tests: [not_null]
+
+      - name: batch_profile
+        description: "Profile por arquivo × batch_month × produto, calculado pelo anp03 sobre o precos_raw gravado. produto = '*' é a linha de total do mês; batch_month = 0 agrupa datas não parseáveis (linhas vazias)."
+        loaded_at_field: profiled_at
+        config:
+          freshness:
+            warn_after: {count: 8, period: day}
+
+      - name: precos_quarantine
+        description: "Registros rejeitados pelo contrato do anp03 (número de campos errado). Não existem em precos_raw."
