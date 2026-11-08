@@ -68,19 +68,51 @@ reload); `python -m pipelines.anp.anp03_bronze --reprofile` recomputes it for lo
 parsed only here (profiling); bronze stays raw. **`anp_bronze.v_batch_matrix`**: one row per batch with the average
 price of each product in columns (gasolina … glp), stations, brands, `other_product_rows`, `price_missing`.
 
-## 5. For the dbt project (owner)
+## 5. dbt layers (`dbt_lambda/`): silver, data quality, gold
 
-* Source: `anp_bronze.precos_raw` (`loaded_at_field: _ingested_at`); control/lineage in `ctrl.source_file` (join on
-  `_file_key` for period and kind). Quarantine: `anp_bronze.precos_quarantine`.
-* Suggested design (accepted in planning, 2026-10-22): silver `anp_preco_coleta` at the grain `cnpj + produto +
-  data_coleta`, dedup by source priority **semestral > mensal > semanal** then latest `_ingested_at`; dbt snapshot
-  of the station (SCD2 of brand, address, name); gold `dim_posto` (natural key CNPJ), `dim_endereco` (md5 of the
-  normalised address), `dim_produto` (natural key), `dim_bandeira`, `dim_municipio` (UF + name, IBGE seed later),
-  `dim_data`, fact `fato_preco_coleta` and a weekly aggregate UF × product for the Streamlit app.
-* Typing facts from the data: decimal comma (`2,899`), dates `dd/mm/yyyy`, CNPJ with mask and a leading space, GLP
-  priced per 13 kg bottle (`R$ / 13 kg`), `valor_de_compra` mostly NULL.
-* dbt runs from `~/.envs/env-dbt` (dbt-core 1.12, dbt-postgres 1.11); Cosmos 1.15 is installed in Airflow. Schedule
-  the dbt DAG on the asset `anp_bronze.precos_raw`.
+Three DAGs chained by Airflow assets: `anp_pipeline` → `ANP_BRONZE` → `anp_dbt` (silver + anp_dq) → `ANP_SILVER` →
+`anp_dbt_gold` → `ANP_GOLD` (assets in `pipelines/commons/assets.py`, Cosmos config in
+`pipelines/commons/airflow_dbt.py`). dbt runs from `dbt_lambda/.venv`, profile in the project (socket + peer auth).
+Handoff and decisions: `docs/handoff/2026-11-08_dbt_anp_silver.md`.
+
+**Silver (`anp_silver`).** `stg_anp__precos` (view: typing identical to the bronze `PROFILE_SQL`) →
+`anp__precos_coleta` (incremental, delete+insert per month × product_group). One source per month × group:
+**mensal > semanal > semestral** (a month is rebuilt whole when a new file touches it); exact duplicates (`row_hash`
+over the raw columns) collapsed (`qt_publicacoes`); several prices for the same posto/produto/dia kept and flagged
+(`fl_conflito_preco`); `fl_preco_suspeito` = price outside [0.5, 2.0] × median of month × produto × UF (3 rows of
+31.6 M, all typos). Contract: NOT NULL on every key/measure/location column; nullable only where the source does not
+publish (`valor_compra`, `complemento`, `bairro`, `numero`, `logradouro`).
+
+**Data quality (`anp_dq`).** `dq_anp__carga_mes` (bronze → silver funnel per month × group), `dq_anp__qualidade_lote`
+(price gate per batch = month × produto: avg/median/min/max/p01/p99/CV, suspicious, MoM change of the median and of
+the stations; warn tests judge only the last 3 months), `dq_anp__qualidade_lote_uf`, `dq_anp__precos_suspeitos`.
+Elementary (`anp_elementary`) records every model/test result. Grafana board `lambda4-anp-dbt`.
+
+**Gold (`anp_gold`), star schema:**
+
+| Object | Grain / key | Notes |
+|---|---|---|
+| `dim_calendario` | day (`data`) | 2004 → end of the current year; ISO week, month, quarter, weekday |
+| `dim_produto` | `produto` (natural key) | group, unit (`R$ / litro`, `R$ / 13 kg`, `R$ / m³`), display order |
+| `dim_municipio` | `md5(uf\|municipio)` | 901 municipalities (no IBGE code in the source) |
+| `dim_posto` | `md5(cnpj\|first collection of the version)` | **SCD2 derived from the collection timeline** (147,349 versions, 87,058 CNPJs) |
+| `fct_preco_diario` | posto × produto × dia | 31.6 M rows, incremental by month; avg/min/max/`qt_precos`, `fl_preco_suspeito`, `bandeira_publicada` |
+| `ag_preco_posto_atual` | posto × produto | last + previous price (18 months), current posto version: Streamlit cards/matrix |
+| `ag_preco_municipio_diario` | dia × município × produto | `soma_preco_venda` + `qtd_postos` for exact UF/Brasil/week roll-ups: Streamlit history |
+| `ag_preco_semanal_uf` | semana × UF × produto | Grafana / BI |
+
+Why the SCD2 is derived from the data (not a `dbt snapshot`): the 20 years arrive at once, a snapshot would only
+record changes from now on. Rules measured on 2026-11-08:
+* attributes come from the **fuel** rows: in the GLP files "bandeira" is the gas distributor (Liquigás, Supergasbras),
+  not the station brand; 50,407 CNPJs appear only in GLP (gas resellers, `tipo_revenda = revenda_glp`);
+* a **BRANCA stretch between two stretches of the same brand** is a source omission and inherits the brand: the ANP
+  published BRANCA instead of the brand in several months (Aug–Nov 2005 the BRANCA share jumped from 28% to 60%);
+  without the rule 22,829 false stretches became versions;
+* products of the same station on the same day always agree on the attributes (0 divergences in 8.25 M station-days).
+
+Serving marts exclude suspicious prices; the fact keeps them flagged. Tests: grain of every table, relationships
+fact → dims, SCD2 without overlap/gap and exactly one current version per CNPJ, silver → fact and fact → mart
+reconciliation (rows and summed price). Full build 11.5 min (fact 5.7 min); incremental with no new data: 15 s.
 
 ## 6. Observability
 

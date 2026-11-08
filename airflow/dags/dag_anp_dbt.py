@@ -1,48 +1,50 @@
 """
-### anp_dbt — silver/gold da ANP (dbt + Cosmos)
+### anp_dbt — ANP silver + data quality (dbt + Cosmos)
 
-Disparado pelo asset `anp_bronze.precos_raw` (task bronze do anp_pipeline). Sem arquivo novo → sem evento → não roda.
-Cada modelo vira uma task de run + test (TestBehavior.AFTER_EACH): teste com severity error bloqueia o downstream.
-Observabilidade: o Elementary (pacote dbt) grava o resultado de cada task em anp_elementary; os modelos anp_dq
-(funil da carga, portão de qualidade por lote) rodam depois da silver.
-Conexão: socket local + peer auth (mesmo padrão do pipelines.commons.pg), sem senha.
+Airflow DAG disparado pelo asset `anp_bronze.precos_raw` (task bronze do anp_pipeline): sem arquivo novo, não roda.
+Cada modelo vira uma task de run + test: teste com severity error bloqueia o downstream.
 
-Airflow DAG file: keep the words "airflow" and "dag" in it. The dag-processor's safe mode skips any file without
-both, silently (this file imports only cosmos, so the docstring is what keeps it visible).
+| Camada | Modelos |
+|---|---|
+| silver | `stg_anp__precos` (view) → `anp__precos_coleta` (incremental por mês × grupo) |
+| anp_dq | funil `dq_anp__carga_mes`, portão de qualidade `dq_anp__qualidade_lote(_uf)`, `dq_anp__precos_suspeitos` |
+
+No fim, `publish_silver` emite o asset `anp_silver.anp__precos_coleta`, que dispara o `anp_dbt_gold`.
+Observabilidade: o Elementary grava cada task em `anp_elementary`; o board Grafana "ANP · Transformações dbt".
+Keep the words "airflow" and "dag" in this file: the dag-processor's safe mode skips files without both.
 """
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from cosmos import DbtDag, ExecutionConfig, ProfileConfig, ProjectConfig, RenderConfig
-from cosmos.constants import InvocationMode, SourceRenderingBehavior, TestBehavior
+from airflow.providers.standard.operators.empty import EmptyOperator
+from airflow.sdk import DAG
+from cosmos import DbtTaskGroup
 
 REPO = Path(__file__).resolve().parents[2]          # the DAG folder is a symlink into the repository
 sys.path.insert(0, str(REPO))
-from pipelines.commons.assets import ANP_BRONZE  # noqa: E402
+from pipelines.commons.airflow_dbt import EXECUTION, PROFILE, PROJECT, render  # noqa: E402
+from pipelines.commons.assets import ANP_BRONZE, ANP_SILVER  # noqa: E402
 
-DBT_DIR = REPO / "dbt_lambda"
-
-anp_dbt = DbtDag(
+with DAG(
     dag_id="anp_dbt",
-    project_config=ProjectConfig(DBT_DIR, install_dbt_deps=False),   # deps já instalados em dbt_lambda/dbt_packages
-    profile_config=ProfileConfig(
-        profile_name="dbt_lambda",
-        target_name="dev",
-        profiles_yml_filepath=DBT_DIR / "profiles.yml",
-    ),
-    execution_config=ExecutionConfig(
-        dbt_executable_path=str(DBT_DIR / ".venv" / "bin" / "dbt"),
-        invocation_mode=InvocationMode.SUBPROCESS,
-    ),
-    render_config=RenderConfig(
-        test_behavior=TestBehavior.AFTER_EACH,
-        source_rendering_behavior=SourceRenderingBehavior.WITH_TESTS_OR_FRESHNESS,
-        # Elementary's own models are created/upgraded by hand (`dbt run -s elementary`); its on-run-end hooks
-        # still record every task's results in anp_elementary
-        exclude=["package:elementary"],
-        # a test with 2+ parents (e.g. ctrl + stg) becomes its own task after ALL of them, not glued to one
-        should_detach_multiple_parents_tests=True,
-        emit_datasets=False,
-    ),
+    description="ANP: bronze -> silver (dbt) + data quality gates (anp_dq), Elementary results",
+    doc_md=__doc__,
+    start_date=datetime(2026, 11, 1, tzinfo=ZoneInfo("America/Sao_Paulo")),
     schedule=[ANP_BRONZE],
-)
+    catchup=False,
+    max_active_runs=1,
+    is_paused_upon_creation=True,
+    dagrun_timeout=timedelta(hours=2),
+    default_args={"owner": "lambda", "retries": 1, "retry_delay": timedelta(minutes=5),
+                  "execution_timeout": timedelta(minutes=60)},
+    tags=["anp", "dbt", "cosmos", "silver", "dq"],
+) as dag:
+    silver = DbtTaskGroup(
+        group_id="silver",
+        project_config=PROJECT, profile_config=PROFILE, execution_config=EXECUTION,
+        render_config=render(exclude=["tag:gold"]),
+    )
+    publish_silver = EmptyOperator(task_id="publish_silver", outlets=[ANP_SILVER])
+    silver >> publish_silver
